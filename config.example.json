@@ -1,0 +1,35 @@
+{
+    "monthly_budget": 30.0,
+    "default_model": "google/gemini-2.5-flash",
+    "use_ai_enhancement": true,
+    "api_keys": {
+        "openrouter": "",
+        "openai": "",
+        "anthropic": "",
+        "google": ""
+    },
+    "use_ocr": false,
+    "use_table_detection": true,
+    "parallel_workers": 2,
+    "skip_existing": false,
+    "output_format": "markdown",
+    "output_template": "{name}",
+    "include_metadata": true,
+    "custom_prompt": "",
+    "vision_model": "openai/gpt-4o-mini",
+    "active_provider": "openrouter",
+    "use_tika": false,
+    "use_tabula": true,
+    "java_path": "",
+    "rag_settings": {
+        "enabled": true,
+        "auto_vectorize": true,
+        "embedding_provider": "openai",
+        "embedding_model": "text-embedding-3-large",
+        "vector_db_path": "./vector_db",
+        "default_doc_type": "default",
+        "chunk_overlap_pct": 0.12,
+        "retrieval_k": 10,
+        "hybrid_search": true
+    }
+}
