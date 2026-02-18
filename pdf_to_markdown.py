@@ -1194,6 +1194,33 @@ class DocumentConverter:
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
+        # Validate file is a real PDF and not corrupt/password-protected
+        try:
+            _test_doc = self.fitz.open(str(pdf_path))
+            if _test_doc.is_encrypted:
+                _test_doc.close()
+                raise PermissionError(
+                    f"PDF is password-protected and cannot be opened: {pdf_path}. "
+                    "Please provide an unprotected version of the file."
+                )
+            _page_count = len(_test_doc)
+            _test_doc.close()
+            if _page_count == 0:
+                raise ValueError(f"PDF has no pages: {pdf_path}")
+        except PermissionError:
+            raise
+        except ValueError:
+            raise
+        except Exception as e:
+            if "encrypted" in str(e).lower() or "password" in str(e).lower():
+                raise PermissionError(
+                    f"PDF is password-protected: {pdf_path}. "
+                    "Please provide an unprotected version of the file."
+                ) from e
+            raise ValueError(
+                f"Unable to open PDF (file may be corrupt): {pdf_path}. Error: {e}"
+            ) from e
+
         if output_path is None:
             output_path = pdf_path.with_suffix('.md')
         else:

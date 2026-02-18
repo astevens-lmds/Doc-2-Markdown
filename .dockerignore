@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+*.pyc
+.env
+config.json
+usage.json
+custom_prompts.json
+output/
