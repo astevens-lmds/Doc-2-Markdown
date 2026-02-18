@@ -187,6 +187,92 @@ as to any material fact.[^1]
 [[PAGE_START: 2]]
 ```
 
+### DOCX Conversion
+
+Word documents preserve headings, tables, and formatting:
+
+```markdown
+# Employment Agreement
+
+## 1. Parties
+
+This Employment Agreement ("Agreement") is entered into between
+**Acme Corporation** ("Employer") and **Jane Doe** ("Employee").
+
+## 2. Term
+
+| Provision       | Detail              |
+|-----------------|---------------------|
+| Start Date      | March 1, 2025       |
+| Initial Term    | 2 years             |
+| Renewal         | Automatic, annually |
+```
+
+### Email Conversion (MSG/EML)
+
+Emails are converted with metadata headers and attachment listings:
+
+```markdown
+# Re: Discovery Response — Smith v. Jones
+
+| Field   | Value                              |
+|---------|------------------------------------|
+| From    | opposing.counsel@lawfirm.com       |
+| To      | andrew@lmdslaw.com                 |
+| Date    | January 15, 2025 3:42 PM           |
+| Subject | Re: Discovery Response — Smith v. Jones |
+
+Please find attached our responses to Interrogatories 1-15.
+We object to Request No. 12 on grounds of attorney-client privilege.
+
+**Attachments:** discovery_responses.pdf, privilege_log.xlsx
+```
+
+### EPUB Conversion
+
+eBooks are converted with table of contents and chapter structure:
+
+```markdown
+# The Law of Contracts (5th Edition)
+
+## Table of Contents
+
+1. [Formation of Contracts](#ch1)
+2. [Consideration](#ch2)
+3. [Capacity and Legality](#ch3)
+
+---
+
+## Chapter 1: Formation of Contracts
+
+### 1.1 Offer and Acceptance
+
+An offer is a manifestation of willingness to enter into a bargain...
+
+> "An acceptance must be the mirror image of the offer."
+> *Restatement (Second) of Contracts § 59*
+```
+
+### Scanned PDF with OCR
+
+For scanned documents, OCR extracts text with page markers:
+
+```markdown
+[[PAGE_START: 1]]
+
+# DEPOSITION TRANSCRIPT
+
+**Case:** Martinez v. City Hospital
+**Witness:** Dr. Robert Chen, M.D.
+**Date:** February 3, 2025
+
+Q: Doctor, can you state your qualifications?
+A: I am board-certified in emergency medicine with 15 years
+of experience at City Hospital...
+
+[[PAGE_START: 2]]
+```
+
 ### Docker Usage
 
 ```bash

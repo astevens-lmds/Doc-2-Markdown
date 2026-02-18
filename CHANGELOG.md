@@ -5,6 +5,15 @@ All notable changes to PDF-MD Converter will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-02-18 — Wave 22: Documentation Polish
+
+### Added
+- Expanded README with additional conversion examples (DOCX, email, EPUB, batch CLI)
+- Comprehensive input/output samples for each supported format
+- Updated CHANGELOG with improvement wave history
+
+---
+
 ## [2.2.0] - 2026-01-04
 
 ### Added
