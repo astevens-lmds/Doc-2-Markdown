@@ -1,5 +1,8 @@
 # PDF-MD Converter
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 A desktop application for converting PDF documents to Markdown format, optimized for legal professionals and document management.
 
 ## Features
@@ -129,6 +132,67 @@ Optional:
 - sentence-transformers - Local embeddings
 
 See `requirements.txt` for full list.
+
+## Usage Examples
+
+### GUI Mode (Default)
+
+```bash
+python pdf_to_markdown.py
+```
+
+This launches the desktop GUI where you can drag & drop files or browse to select them.
+
+### Batch Processing (CLI)
+
+```bash
+python batch_convert.py --input ./pdfs --output ./markdown --workers 4
+```
+
+Convert an entire directory of documents in parallel.
+
+### Supported Input Formats
+
+| Format | Extension | Notes |
+|--------|-----------|-------|
+| PDF | `.pdf` | Native text + OCR for scanned |
+| Word | `.docx` | Preserves headings and tables |
+| Plain Text | `.txt` | Direct conversion |
+| Email | `.msg`, `.eml` | Extracts body + attachments |
+| eBook | `.epub`, `.mobi` | Chapter-aware conversion |
+
+### Output Sample
+
+Given a legal PDF, the converter produces clean Markdown:
+
+```markdown
+[[PAGE_START: 1]]
+
+# Motion for Summary Judgment
+
+## I. Statement of Facts
+
+The plaintiff filed the original complaint on **January 15, 2024**...
+
+> "The duty of care requires that the defendant exercise reasonable
+> diligence in maintaining the property." *Smith v. Jones*, 123 F.3d 456 (2024)
+
+## II. Legal Standard
+
+Summary judgment is appropriate when there is no genuine dispute
+as to any material fact.[^1]
+
+[^1]: Fed. R. Civ. P. 56(a).
+
+[[PAGE_START: 2]]
+```
+
+### Docker Usage
+
+```bash
+docker build -t pdf-md-converter .
+docker run -v $(pwd)/input:/input -v $(pwd)/output:/output pdf-md-converter
+```
 
 ## License
 
