@@ -99,7 +99,10 @@ def _check_availability():
     HAS_TESSERACT = importlib.util.find_spec("pytesseract") is not None
     HAS_DOCX = importlib.util.find_spec("docx") is not None
     HAS_MSG = importlib.util.find_spec("extract_msg") is not None
-    HAS_DND = importlib.util.find_spec("tkinterdnd2") is not None
+    try:
+        HAS_DND = importlib.util.find_spec("tkinterdnd2") is not None
+    except (ValueError, ModuleNotFoundError):
+        HAS_DND = False
     HAS_TIKA = importlib.util.find_spec("tika") is not None
     HAS_TABULA = importlib.util.find_spec("tabula") is not None
     HAS_PYMUPDF4LLM = importlib.util.find_spec("pymupdf4llm") is not None
