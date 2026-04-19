@@ -104,18 +104,22 @@ The default prompt is optimized for legal documents:
 - Proper hierarchy with nested markdown headers
 - Blockquotes for case extracts and quoted material
 
-## Supported LLM Models
+## Supported High-End Conversion Models (Updated April 2026)
 
-### OpenRouter (Recommended)
-- Google Gemini 2.5 Flash (fast, cost-effective)
-- Anthropic Claude Sonnet 4.5 (balanced)
-- OpenAI GPT-4o (versatile)
-- DeepSeek R1 (reasoning)
+### DataLabs OCR (Best for Layout Analysis)
+- Datalab Marker OCR Engine (Direct End-to-End Extraction)
+
+### OpenRouter (Recommended for AI Augmentation)
+- Google Gemini 3.1 Pro (fast, state-of-the-art vision)
+- Anthropic Claude Opus 4.7 (most capable)
+- Anthropic Claude Sonnet 4.6 (balanced logic)
+- OpenAI GPT-6 Omni (versatile multi-modal)
+- DeepSeek V4 Chat (reasoning)
 
 ### Direct API Access
-- OpenAI models (requires OpenAI API key)
-- Anthropic Claude (requires Anthropic API key)
-- Google Gemini (requires Google API key)
+- OpenAI models (GPT-6, GPT-5.5 Mini - requires OpenAI API key)
+- Anthropic Claude (Claude Opus 4.7, Claude Sonnet 4.6 - requires Anthropic API key)
+- Google Gemini (Gemini 3.1 Pro, 3.0 Flash - requires Google API key)
 
 ## Dependencies
 

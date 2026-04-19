@@ -129,29 +129,55 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Settings Logic
+    const providerSelect = document.getElementById('setting-provider');
+    const providers = ['datalab', 'openrouter', 'openai', 'anthropic', 'google'];
+    
+    function updateKeyVisibility(activeProvider) {
+        providers.forEach(p => {
+            const group = document.getElementById(`group-${p}`);
+            if (group) group.style.display = (p === activeProvider) ? 'block' : 'none';
+        });
+    }
+
+    providerSelect.addEventListener('change', (e) => {
+        updateKeyVisibility(e.target.value);
+    });
+
     function loadSettings() {
         fetch('/api/config')
             .then(res => res.json())
             .then(data => {
-                const provider = document.getElementById('setting-provider');
-                const key = document.getElementById('setting-key-openrouter');
-                if (data.active_provider) provider.value = data.active_provider;
-                if (data.api_keys && data.api_keys.openrouter) {
-                    key.value = data.api_keys.openrouter;
+                if (data.active_provider) {
+                    providerSelect.value = data.active_provider;
+                    updateKeyVisibility(data.active_provider);
+                } else {
+                    updateKeyVisibility('datalab');
+                }
+                
+                if (data.api_keys) {
+                    providers.forEach(p => {
+                        const input = document.getElementById(`setting-key-${p}`);
+                        if (input && data.api_keys[p]) {
+                            input.value = data.api_keys[p];
+                        }
+                    });
                 }
             });
     }
 
     document.getElementById('btn-save-settings').addEventListener('click', () => {
-        const provider = document.getElementById('setting-provider').value;
-        const key = document.getElementById('setting-key-openrouter').value;
-
         fetch('/api/config')
             .then(res => res.json())
             .then(data => {
-                data.active_provider = provider;
+                data.active_provider = providerSelect.value;
                 if (!data.api_keys) data.api_keys = {};
-                data.api_keys.openrouter = key;
+                
+                providers.forEach(p => {
+                    const input = document.getElementById(`setting-key-${p}`);
+                    if (input) {
+                        data.api_keys[p] = input.value;
+                    }
+                });
 
                 return fetch('/api/config', {
                     method: 'POST',
@@ -159,7 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify(data)
                 });
             })
-            .then(() => showToast('Settings saved successfully'))
+            .then(() => showToast('Settings saved successfully! High-End conversion parameters stored.'))
             .catch(() => showToast('Error saving settings'));
     });
 

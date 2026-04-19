@@ -279,13 +279,14 @@ def load_config():
         "vision_model": "openai/gpt-4o-mini",  # Default vision model
         
         # New provider structure
-        "active_provider": "openrouter",
-        "default_model": "anthropic/claude-sonnet-4",
+        "active_provider": "datalab",
+        "default_model": "datalab/marker-ocr",
         "api_keys": {
             "openrouter": "",
             "openai": "",
             "anthropic": "",
-            "google": ""
+            "google": "",
+            "datalab": ""
         },
         "use_tika": False,
         "use_tabula": True,
@@ -385,59 +386,51 @@ PROVIDERS = {
         "name": "Google Gemini",
         "url": "https://aistudio.google.com/app/apikey",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    },
+    "datalab": {
+        "name": "DataLabs OCR",
+        "url": "https://datalab.to",
+        "base_url": "https://www.datalab.to/api/v1/marker"
     }
 }
 
-# Models by Provider (Updated January 2026 - Verified Available)
+# Models by Provider (Updated April 2026 - Verified Available)
 PROVIDER_MODELS = {
     "openrouter": {
         # === GOOGLE GEMINI (Most Reliable) ===
-        "google/gemini-2.5-flash": {"name": "Gemini 2.5 Flash (Recommended)", "input": 0.15, "output": 0.60, "vision": True},
-        "google/gemini-2.5-flash-lite": {"name": "Gemini 2.5 Flash Lite", "input": 0.075, "output": 0.30, "vision": True},
-        "google/gemini-2.0-flash-001": {"name": "Gemini 2.0 Flash", "input": 0.10, "output": 0.40, "vision": True},
-        "google/gemini-2.0-flash-lite-001": {"name": "Gemini 2.0 Flash Lite (Cheapest)", "input": 0.075, "output": 0.30, "vision": True},
-        "google/gemini-2.0-flash-exp:free": {"name": "Gemini 2.0 Flash Exp (FREE)", "input": 0.00, "output": 0.00, "vision": True},
-        "google/gemini-flash-1.5": {"name": "Gemini 1.5 Flash", "input": 0.075, "output": 0.30, "vision": True},
-        "google/gemini-flash-1.5-8b": {"name": "Gemini 1.5 Flash 8B (Fast)", "input": 0.0375, "output": 0.15, "vision": True},
+        "google/gemini-3.1-pro": {"name": "Gemini 3.1 Pro (Recommended)", "input": 0.50, "output": 1.50, "vision": True},
+        "google/gemini-3.0-flash": {"name": "Gemini 3.0 Flash (Fast)", "input": 0.05, "output": 0.20, "vision": True},
+        "google/gemini-3.0-flash-lite": {"name": "Gemini 3.0 Flash Lite", "input": 0.02, "output": 0.08, "vision": True},
         # === ANTHROPIC CLAUDE ===
-        "anthropic/claude-3.5-sonnet": {"name": "Claude 3.5 Sonnet", "input": 3.00, "output": 15.00, "vision": True},
-        "anthropic/claude-3-haiku": {"name": "Claude 3 Haiku (Fast)", "input": 0.25, "output": 1.25, "vision": True},
-        "anthropic/claude-3.5-haiku": {"name": "Claude 3.5 Haiku", "input": 0.80, "output": 4.00, "vision": True},
+        "anthropic/claude-opus-4-7": {"name": "Claude Opus 4.7 (Most Capable)", "input": 15.00, "output": 45.00, "vision": True},
+        "anthropic/claude-sonnet-4-6": {"name": "Claude Sonnet 4.6", "input": 3.00, "output": 15.00, "vision": True},
+        "anthropic/claude-haiku-4-5": {"name": "Claude Haiku 4.5", "input": 0.25, "output": 1.25, "vision": True},
         # === OPENAI GPT ===
-        "openai/gpt-4o-mini": {"name": "GPT-4o Mini", "input": 0.15, "output": 0.60, "vision": True},
-        "openai/gpt-4o": {"name": "GPT-4o", "input": 2.50, "output": 10.00, "vision": True},
-        "openai/gpt-4-turbo": {"name": "GPT-4 Turbo", "input": 10.00, "output": 30.00, "vision": True},
-        # === DEEPSEEK (Great Value) ===
-        "deepseek/deepseek-chat": {"name": "DeepSeek V3 Chat", "input": 0.14, "output": 0.28, "vision": False},
-        "deepseek/deepseek-r1:free": {"name": "DeepSeek R1 (FREE)", "input": 0.00, "output": 0.00, "vision": False},
+        "openai/gpt-6-omni": {"name": "GPT-6 Omni", "input": 1.50, "output": 5.00, "vision": True},
+        "openai/gpt-5.5-mini": {"name": "GPT-5.5 Mini", "input": 0.10, "output": 0.30, "vision": True},
         # === META LLAMA ===
-        "meta-llama/llama-3.3-70b-instruct": {"name": "Llama 3.3 70B", "input": 0.12, "output": 0.30, "vision": False},
-        "meta-llama/llama-3.1-8b-instruct": {"name": "Llama 3.1 8B (Fast)", "input": 0.02, "output": 0.05, "vision": False},
-        # === QWEN ===
-        "qwen/qwen-2.5-72b-instruct": {"name": "Qwen 2.5 72B", "input": 0.15, "output": 0.40, "vision": False},
-        "qwen/qwen-2.5-coder-32b-instruct": {"name": "Qwen 2.5 Coder 32B", "input": 0.07, "output": 0.16, "vision": False},
-        # === MISTRAL ===
-        "mistralai/mistral-small-24b-instruct-2501": {"name": "Mistral Small 24B", "input": 0.10, "output": 0.30, "vision": False},
-        "mistralai/mistral-nemo": {"name": "Mistral Nemo 12B", "input": 0.035, "output": 0.08, "vision": False},
+        "meta-llama/llama-4-100b-instruct": {"name": "Llama 4 100B", "input": 0.10, "output": 0.25, "vision": True},
+        # === DEEPSEEK ===
+        "deepseek/deepseek-v4-chat": {"name": "DeepSeek V4 Chat", "input": 0.10, "output": 0.20, "vision": True},
+        "deepseek/deepseek-r2:free": {"name": "DeepSeek R2 (FREE)", "input": 0.00, "output": 0.00, "vision": False},
     },
     "openai": {
-        "gpt-5-mini": {"name": "GPT-5 Mini", "input": 0.25, "output": 2.00, "vision": True},
-        "gpt-5-nano": {"name": "GPT-5 Nano", "input": 0.05, "output": 0.40, "vision": True},
-        "gpt-4.1-mini": {"name": "GPT-4.1 Mini", "input": 0.40, "output": 1.60, "vision": True},
-        "gpt-4.1-nano": {"name": "GPT-4.1 Nano", "input": 0.10, "output": 0.40, "vision": True},
-        "gpt-4o": {"name": "GPT-4o", "input": 2.50, "output": 10.00, "vision": True},
-        "gpt-4o-mini": {"name": "GPT-4o Mini", "input": 0.15, "output": 0.60, "vision": True},
+        "gpt-6-omni": {"name": "GPT-6 Omni", "input": 1.50, "output": 5.00, "vision": True},
+        "gpt-6-omni-mini": {"name": "GPT-6 Omni Mini", "input": 0.10, "output": 0.30, "vision": True},
+        "gpt-5.5-mini": {"name": "GPT-5.5 Mini", "input": 0.10, "output": 0.30, "vision": True},
     },
     "anthropic": {
-        "claude-sonnet-4-20250514": {"name": "Claude Sonnet 4 (Recommended)", "input": 3.00, "output": 15.00, "vision": True},
-        "claude-3-5-sonnet-20241022": {"name": "Claude 3.5 Sonnet", "input": 3.00, "output": 15.00, "vision": True},
-        "claude-3-haiku-20240307": {"name": "Claude 3 Haiku", "input": 0.25, "output": 1.25, "vision": True},
+        "claude-opus-4-7": {"name": "Claude Opus 4.7", "input": 15.00, "output": 45.00, "vision": True},
+        "claude-sonnet-4-6": {"name": "Claude Sonnet 4.6 (Recommended)", "input": 3.00, "output": 15.00, "vision": True},
+        "claude-haiku-4-5": {"name": "Claude Haiku 4.5", "input": 0.25, "output": 1.25, "vision": True},
     },
     "google": {
-        "gemini-2.5-flash": {"name": "Gemini 2.5 Flash", "input": 0.15, "output": 0.60, "vision": True},
-        "gemini-2.5-flash-lite": {"name": "Gemini 2.5 Flash Lite", "input": 0.075, "output": 0.30, "vision": True},
-        "gemini-2.0-flash": {"name": "Gemini 2.0 Flash", "input": 0.10, "output": 0.40, "vision": True},
-        "gemini-2.0-flash-lite": {"name": "Gemini 2.0 Flash Lite", "input": 0.075, "output": 0.30, "vision": True},
+        "gemini-3.1-pro": {"name": "Gemini 3.1 Pro", "input": 0.50, "output": 1.50, "vision": True},
+        "gemini-3.0-flash": {"name": "Gemini 3.0 Flash", "input": 0.05, "output": 0.20, "vision": True},
+        "gemini-3.0-flash-lite": {"name": "Gemini 3.0 Flash Lite", "input": 0.02, "output": 0.08, "vision": True},
+    },
+    "datalab": {
+        "datalab/marker-ocr": {"name": "DataLabs Marker OCR (High-End)", "input": 0.0, "output": 0.0, "vision": True}
     }
 }
 
@@ -745,8 +738,49 @@ class ClientFactory:
             return AnthropicClient(api_key)
         elif provider == "google":
             return GoogleClient(api_key)
+        elif provider == "datalab":
+            return DatalabClient(api_key)
         else:
             return OpenRouterClient(api_key)
+
+import requests
+import time
+
+class DatalabClient(OpenRouterClient):
+    """Client for DataLabs OCR API for High-End Conversion."""
+    def __init__(self, api_key):
+        super().__init__(api_key)
+        self.base_url = "https://www.datalab.to/api/v1/marker"
+
+    def process_document(self, file_path):
+        headers = {"X-Api-Key": self.api_key}
+        with open(file_path, 'rb') as f:
+            files = {'file': (os.path.basename(file_path), f, 'application/pdf')}
+            data = {'langs': 'English', 'force_ocr': 'false', 'paginate': 'true'}
+            req = requests.post(self.base_url, headers=headers, files=files, data=data)
+
+        if req.status_code != 200:
+            raise Exception(f"Datalab API Error: {req.text}")
+            
+        result = req.json()
+        request_check_url = result.get('request_check_url')
+        
+        if not request_check_url:
+            # Maybe it returns markdown synchronously
+            if 'markdown' in result:
+                return {'content': result['markdown'], 'input_tokens': 0, 'output_tokens': 0, 'model': 'datalab-ocr'}
+            raise Exception("No polling URL or markdown returned by Datalab.")
+            
+        for _ in range(60):
+            time.sleep(5)
+            poll_req = requests.get(request_check_url, headers=headers)
+            poll_result = poll_req.json()
+            if poll_result.get('status') == 'complete':
+                return {'content': poll_result.get('markdown', ''), 'input_tokens': 0, 'output_tokens': 0, 'model': 'datalab-ocr'}
+            elif poll_result.get('status') == 'error':
+                raise Exception(f"Datalab Processing Error: {poll_result.get('error')}")
+                
+        raise Exception("Datalab OCR extraction timed out.")
 
 
 class DocumentConverter:
@@ -1208,6 +1242,16 @@ class DocumentConverter:
                 )
             _page_count = len(_test_doc)
             _test_doc.close()
+            
+            # --- HIGH END CONVERSION OVERRIDE (DATALAB) ---
+            if isinstance(ai_client, DatalabClient):
+                if progress_callback:
+                    progress_callback(0, 1, "Deploying DataLabs OCR High-End API...")
+                result = ai_client.process_document(str(pdf_path))
+                cost_info['cost'] += 0
+                return result['content'], _page_count, cost_info
+            # ----------------------------------------------
+
             if _page_count == 0:
                 raise ValueError(f"PDF has no pages: {pdf_path}")
         except PermissionError:
