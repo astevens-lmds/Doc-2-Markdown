@@ -33,6 +33,7 @@ rsync -aP \
     --exclude='build_staging' \
     --exclude='*.dmg' \
     --exclude='__pycache__' \
+    --exclude='.DS_Store' \
     --exclude='tests' \
     ./ "$APP_RESOURCES_DIR/"
 

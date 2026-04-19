@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
 import os
+import sys
 import json
 import tempfile
 from pathlib import Path
@@ -83,23 +84,18 @@ def convert():
             kwargs['ai_client'] = ClientFactory.get_client(provider, api_key)
             kwargs['ai_model'] = config.get("default_model")
             kwargs['vision_model'] = config.get("vision_model")
-            
-        result_path = converter.convert_file(
+
+        markdown_content, result_path, _cost_info = converter.convert_file(
             input_path=str(input_path),
             output_path=str(output_path),
-            config=config,
             **kwargs
         )
-        
-        # Read the resulting markdown to return to frontend
-        with open(result_path, 'r', encoding='utf-8') as f:
-            markdown_content = f.read()
-            
+
         return jsonify({
             "status": "success",
             "filename": output_filename,
             "markdown": markdown_content,
-            "path": result_path
+            "path": str(result_path)
         })
         
     except Exception as e:
