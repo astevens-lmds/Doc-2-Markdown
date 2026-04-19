@@ -56,16 +56,16 @@ A desktop application for converting PDF documents to Markdown format, optimized
 
    Edit `config.json` and add your OpenRouter API key (get one free at [openrouter.ai](https://openrouter.ai))
 
-5. Run the application:
+5. Run the application (Local Web App for macOS):
    ```bash
-   python pdf_to_markdown.py
+   ./start_mac.sh
    ```
+   This will automatically start the Flask backend server and open the premium web interface in your default browser.
 
-### Optional: Create Desktop Shortcut (Windows)
-
-Run PowerShell as Administrator and execute:
-```powershell
-.\create_shortcut.ps1
+### Optional: Legacy Desktop GUI Mode
+If you prefer the original tkinter desktop application, you can still run:
+```bash
+python pdf_to_markdown.py
 ```
 
 ## Configuration

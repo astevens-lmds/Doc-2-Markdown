@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doc-2-Markdown - macOS Edition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+                <span>Doc-2-Markdown</span>
+            </div>
+            
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" id="nav-convert">Convert</a>
+                <a href="#" class="nav-item" id="nav-settings">Settings</a>
+            </nav>
+
+            <div class="sidebar-bottom">
+                <div class="status-indicator">
+                    <span class="dot outline"></span>
+                    <span id="backend-status">Backend Disconnected</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Convert View -->
+            <section id="view-convert" class="view-section active">
+                <header class="view-header">
+                    <h1>Convert Document</h1>
+                    <p>Drag and drop a PDF, Word, or Text file to convert it to Markdown.</p>
+                </header>
+
+                <div class="drop-zone" id="drop-zone">
+                    <div class="drop-zone-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                    </div>
+                    <h3>Drag & Drop a document here</h3>
+                    <p>or click to browse</p>
+                    <input type="file" id="file-input" style="display: none;" accept=".pdf,.doc,.docx,.txt,.msg,.epub">
+                </div>
+                
+                <div class="conversion-settings">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="use-ai-toggle" checked>
+                        <span class="slider"></span>
+                        <span class="label-text">Use AI Enhancement</span>
+                    </label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="use-ocr-toggle">
+                        <span class="slider"></span>
+                        <span class="label-text">Force OCR</span>
+                    </label>
+                </div>
+
+                <div id="progress-container" class="hidden">
+                    <div class="file-info" id="file-info">Processing...</div>
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" id="progress-bar"></div>
+                    </div>
+                </div>
+
+                <div id="result-container" class="hidden">
+                    <div class="result-header">
+                        <h3 id="result-filename">document.md</h3>
+                        <button id="btn-download" class="btn btn-primary">Download Markdown</button>
+                    </div>
+                    <div class="result-preview" id="result-preview"></div>
+                </div>
+            </section>
+
+            <!-- Settings View -->
+            <section id="view-settings" class="view-section hidden">
+                <header class="view-header">
+                    <h1>Configuration</h1>
+                    <p>Manage API keys and local settings.</p>
+                </header>
+
+                <div class="settings-form" id="settings-form">
+                    <div class="form-group">
+                        <label>Active Provider</label>
+                        <select id="setting-provider">
+                            <option value="openrouter">OpenRouter (Recommended)</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="google">Google Gemini</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>OpenRouter API Key</label>
+                        <input type="password" id="setting-key-openrouter" placeholder="sk-or-v1-...">
+                    </div>
+                    <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast hidden">Message saved!</div>
+
+    <script src="app.js"></script>
+</body>
+</html>
