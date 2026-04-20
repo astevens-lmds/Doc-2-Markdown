@@ -8,6 +8,7 @@ A desktop application for converting PDF documents to Markdown format, optimized
 ## Features
 
 - **AI-Enhanced Conversion**: Uses LLMs (OpenRouter, OpenAI, Anthropic, Google) to improve markdown quality
+- **Resumable Conversions**: Interrupted AI enhancement can be resumed chunk-by-chunk after a crash, lost connection, or killed process — re-upload the same file and conversion picks up where it left off
 - **RAG Support**: Built-in vector database for semantic search across your converted documents
 - **Multiple Input Formats**: PDF, DOCX, TXT, MSG, EML, EPUB, MOBI
 - **Multiple Output Formats**: Markdown, HTML, DOCX
@@ -276,6 +277,33 @@ of experience at City Hospital...
 
 [[PAGE_START: 2]]
 ```
+
+### Resuming an Interrupted Conversion
+
+Long AI-enhanced conversions are checkpointed chunk-by-chunk to the system temp directory. If the process is killed, the network drops, or the browser closes mid-run, the partial work is preserved on disk.
+
+#### How it works
+
+1. Each upload is hashed (sha256 of file content → `job_id`). Same file = same job.
+2. After every completed AI chunk the backend atomically writes `checkpoint.json` to `<tmp>/doc2md_uploads/<job_id>/` containing: input-content hash, chunks completed, accumulated token totals, and the joined partial markdown.
+3. On a later upload of the same file, the backend detects the matching checkpoint and resumes from the first incomplete chunk.
+4. Changing settings (OCR, vision, provider) between runs changes the extracted chunks, the input hash no longer matches, and the stale checkpoint is discarded — the run starts fresh.
+
+#### Inspect in-progress jobs
+
+```bash
+curl http://127.0.0.1:5000/api/jobs
+```
+
+Returns an array with `job_id`, input filenames, `chunk_index` / `total_chunks` progress, and running token totals.
+
+#### Discard a partial job
+
+```bash
+curl -X DELETE http://127.0.0.1:5000/api/jobs/<job_id>
+```
+
+**Note on OpenRouter**: OpenRouter itself has no server-side resume — each API request is independent. Recovery is implemented entirely on the app side. What OpenRouter provides is the per-request retry loop (3 attempts with exponential backoff on network errors and 5xx responses); that retry now lives *inside* the checkpointed loop, so a chunk that survives the retries is persisted before work moves on.
 
 ### Docker Usage
 

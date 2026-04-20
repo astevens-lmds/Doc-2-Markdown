@@ -1,10 +1,11 @@
 #!/bin/bash
 
 APP_NAME="Doc-2-Markdown"
-DMG_NAME="${APP_NAME}-macOS.dmg"
+VERSION=$(python3 -c "import re,sys; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('pdf_to_markdown.py').read()); print(m.group(1) if m else 'dev')")
+DMG_NAME="${APP_NAME}-${VERSION}-macOS.dmg"
 STAGING_DIR="build_staging"
 
-echo "🧹 Cleaning up previous builds..."
+echo "🧹 Cleaning up previous builds (version ${VERSION})..."
 rm -rf "$STAGING_DIR"
 rm -f "$DMG_NAME"
 mkdir -p "$STAGING_DIR"
@@ -25,7 +26,9 @@ echo "📦 Bundling application files..."
 APP_RESOURCES_DIR="$STAGING_DIR/${APP_NAME}.app/Contents/Resources/app"
 mkdir -p "$APP_RESOURCES_DIR"
 
-# Rsync files specifically needed to run
+# Rsync files specifically needed to run.
+# config.json and usage.json are user-generated at runtime and may contain
+# real API keys / spend history — exclude them so the DMG ships clean.
 rsync -aP \
     --exclude='.git' \
     --exclude='.venv' \
@@ -35,6 +38,8 @@ rsync -aP \
     --exclude='__pycache__' \
     --exclude='.DS_Store' \
     --exclude='tests' \
+    --exclude='config.json' \
+    --exclude='usage.json' \
     ./ "$APP_RESOURCES_DIR/"
 
 # Make sure the startup script is executable in the bundle

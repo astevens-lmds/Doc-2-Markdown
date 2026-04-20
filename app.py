@@ -3,6 +3,8 @@ from flask_cors import CORS
 import os
 import sys
 import json
+import shutil
+import hashlib
 import tempfile
 from pathlib import Path
 from werkzeug.utils import secure_filename
@@ -43,43 +45,59 @@ def config_api():
 def usage_api():
     return jsonify(load_usage())
 
+def _hash_stream(stream, chunk_size=1 << 20):
+    """Stream-hash an uploaded file and rewind it for later use."""
+    h = hashlib.sha256()
+    stream.seek(0)
+    while True:
+        buf = stream.read(chunk_size)
+        if not buf:
+            break
+        h.update(buf)
+    stream.seek(0)
+    return h.hexdigest()[:16]
+
+
 @app.route('/api/convert', methods=['POST'])
 def convert():
     if 'file' not in request.files:
         return jsonify({"error": "No file provided"}), 400
-        
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({"error": "Empty filename"}), 400
-        
-    # Get config settings
+
     config = load_config()
-    
-    # Save uploaded file
+
     filename = secure_filename(file.filename)
-    input_path = TEMP_DIR / filename
-    file.save(input_path)
-    
-    # Determine output path
+    job_id = _hash_stream(file.stream)
+    job_dir = TEMP_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    input_path = job_dir / filename
+    if not input_path.exists():
+        file.save(input_path)
+
     output_filename = f"{Path(filename).stem}.md"
-    output_path = TEMP_DIR / output_filename
-    
+    output_path = job_dir / output_filename
+
+    resumed = (job_dir / 'checkpoint.json').exists()
+
     try:
-        # Check high-end and standard settings
         is_high_end = config.get("active_provider") == "datalab"
-        
+
         kwargs = {
             'use_ai': request.form.get('use_ai', 'true').lower() == 'true',
             'use_ocr': request.form.get('use_ocr', 'false').lower() == 'true',
-            'use_vision': is_high_end, # If high-end datalab, vision logic kicks in inside convert_pdf_to_markdown
+            'use_vision': is_high_end,
+            'checkpoint_dir': str(job_dir),
         }
-        
-        # Instantiate AI client explicitly from config
+
         from pdf_to_markdown import ClientFactory
-        
+
         provider = config.get("active_provider", "openrouter")
         api_key = config.get("api_keys", {}).get(provider, "")
-        
+
         if kwargs['use_ai'] and api_key:
             kwargs['ai_client'] = ClientFactory.get_client(provider, api_key)
             kwargs['ai_model'] = config.get("default_model")
@@ -91,19 +109,72 @@ def convert():
             **kwargs
         )
 
-        return jsonify({
+        response = {
             "status": "success",
             "filename": output_filename,
             "markdown": markdown_content,
-            "path": str(result_path)
-        })
-        
+            "path": str(result_path),
+            "job_id": job_id,
+            "resumed": resumed,
+        }
+
+        # Success: tear down job dir but preserve the final output elsewhere
+        persisted_output = TEMP_DIR / f"{job_id}_{output_filename}"
+        shutil.copy2(result_path, persisted_output)
+        response["path"] = str(persisted_output)
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+        return jsonify(response)
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        # Cleanup input file
-        if input_path.exists():
-            input_path.unlink()
+        # Preserve job_dir so the next upload of this file can resume
+        return jsonify({
+            "error": str(e),
+            "job_id": job_id,
+            "resumable": (job_dir / 'checkpoint.json').exists(),
+        }), 500
+
+
+_CHECKPOINT_ARTIFACTS = {'checkpoint.json', 'checkpoint.json.tmp'}
+
+
+@app.route('/api/jobs', methods=['GET'])
+def list_jobs():
+    """List incomplete conversion jobs that can be resumed."""
+    jobs = []
+    for d in TEMP_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        checkpoint_file = d / 'checkpoint.json'
+        if not checkpoint_file.exists():
+            continue
+        try:
+            state = json.loads(checkpoint_file.read_text(encoding='utf-8'))
+        except (json.JSONDecodeError, OSError):
+            continue
+        inputs = [p.name for p in d.iterdir()
+                  if p.is_file() and p.name not in _CHECKPOINT_ARTIFACTS]
+        jobs.append({
+            "job_id": d.name,
+            "input_files": inputs,
+            "chunk_index": state.get('chunk_index', 0),
+            "total_chunks": state.get('total_chunks', 0),
+            "input_tokens": state.get('input_tokens', 0),
+            "output_tokens": state.get('output_tokens', 0),
+        })
+    return jsonify(jobs)
+
+
+@app.route('/api/jobs/<job_id>', methods=['DELETE'])
+def delete_job(job_id):
+    """Discard a partial job and its checkpoint."""
+    # Prevent path traversal
+    safe_id = Path(job_id).name
+    job_dir = TEMP_DIR / safe_id
+    if job_dir.is_dir() and job_dir.parent == TEMP_DIR:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return jsonify({"status": "deleted", "job_id": safe_id})
+    return jsonify({"error": "job not found"}), 404
 
 @app.route('/api/models', methods=['GET'])
 def get_models():

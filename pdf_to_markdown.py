@@ -4,8 +4,8 @@ A comprehensive desktop application to convert PDF files to Markdown format.
 Features: AI enhancement, OCR, table detection, multiple export formats, drag & drop.
 """
 
-__version__ = "2.2.0"
-__version_date__ = "2026-01-04"
+__version__ = "2.3.0"
+__version_date__ = "2026-04-19"
 
 import threading
 import queue
@@ -1216,7 +1216,8 @@ class DocumentConverter:
                                  vision_model=None, custom_prompt=None,
                                  include_metadata=True, check_cancel=None,
                                  use_tika=False, use_tabula=False,
-                                 use_pymupdf4llm=True, embed_images=False):
+                                 use_pymupdf4llm=True, embed_images=False,
+                                 checkpoint_dir=None):
         """Convert a PDF file to Markdown format with all features.
 
         2025 Best Practices Applied:
@@ -1309,21 +1310,13 @@ class DocumentConverter:
 
                     try:
                         chunks = self._split_text(raw_markdown, max_chars=12000)
-                        enhanced_parts = []
-                        total_input_tokens = 0
-                        total_output_tokens = 0
-
-                        for i, chunk in enumerate(chunks):
-                            if check_cancel and check_cancel():
-                                raise Exception("Conversion cancelled")
-
-                            if progress_callback:
-                                progress_callback(total_pages, total_pages, f"AI chunk {i+1}/{len(chunks)}...")
-
-                            result = ai_client.enhance_markdown(chunk, model=ai_model, custom_prompt=custom_prompt)
-                            enhanced_parts.append(result['content'])
-                            total_input_tokens += result['input_tokens']
-                            total_output_tokens += result['output_tokens']
+                        enhanced_parts, total_input_tokens, total_output_tokens = \
+                            self._run_ai_chunks(
+                                chunks, ai_client, ai_model, custom_prompt,
+                                check_cancel=check_cancel,
+                                progress_callback=progress_callback,
+                                total_pages=total_pages,
+                                checkpoint_dir=checkpoint_dir)
 
                         markdown_content = "\n\n".join(enhanced_parts)
                         cost_info['input_tokens'] = total_input_tokens
@@ -1500,29 +1493,24 @@ class DocumentConverter:
                         progress_callback(total_pages, total_pages, "Low text detected, processing...")
 
                 chunks = self._split_text(raw_markdown, max_chars=12000)
-                enhanced_parts = []
 
-                for i, chunk in enumerate(chunks):
-                    if check_cancel and check_cancel():
-                        raise Exception("Conversion cancelled")
-
-                    if progress_callback:
-                        progress_callback(total_pages, total_pages, f"AI chunk {i+1}/{len(chunks)}...")
-
-                    result = ai_client.enhance_markdown(chunk, model=ai_model, custom_prompt=custom_prompt)
-                    content = result['content']
-
-                    # Check if AI returned the "no readable text" marker
+                def _handle_no_readable_marker(content, original_chunk):
                     if "[NO READABLE TEXT EXTRACTED]" in content:
-                        # Fall back to raw text or indicate issue
                         if has_meaningful_text:
-                            content = chunk  # Use raw if we actually have text
-                        else:
-                            content = "[This page appears to be scanned/image-based. Enable OCR or Vision AI for better results.]"
+                            return original_chunk
+                        return "[This page appears to be scanned/image-based. Enable OCR or Vision AI for better results.]"
+                    return content
 
-                    enhanced_parts.append(content)
-                    total_input_tokens += result['input_tokens']
-                    total_output_tokens += result['output_tokens']
+                enhanced_parts, chunk_input_tokens, chunk_output_tokens = \
+                    self._run_ai_chunks(
+                        chunks, ai_client, ai_model, custom_prompt,
+                        check_cancel=check_cancel,
+                        progress_callback=progress_callback,
+                        total_pages=total_pages,
+                        checkpoint_dir=checkpoint_dir,
+                        post_process=_handle_no_readable_marker)
+                total_input_tokens += chunk_input_tokens
+                total_output_tokens += chunk_output_tokens
 
                 markdown_content = "\n\n".join(enhanced_parts)
 
@@ -1563,8 +1551,7 @@ class DocumentConverter:
                 markdown_content += "\n\n## Images\n\n" + "\n\n".join(image_refs)
 
         # Clean up excessive newlines
-        while "\n\n\n" in markdown_content:
-            markdown_content = markdown_content.replace("\n\n\n", "\n\n")
+        markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)
 
         # Calculate cost
         cost = 0
@@ -2227,6 +2214,88 @@ class DocumentConverter:
             cost_info['output_tokens'] = self.count_tokens(content)
 
         return content, final_path, cost_info
+
+    def _run_ai_chunks(self, chunks, ai_client, ai_model, custom_prompt=None,
+                        check_cancel=None, progress_callback=None,
+                        total_pages=1, checkpoint_dir=None, post_process=None):
+        """Run AI enhancement over chunks with optional file-based checkpointing.
+
+        When checkpoint_dir is provided, after each successful chunk we persist
+        a single checkpoint.json (state + joined partial output + input hash)
+        via atomic rename. On a subsequent run with the same checkpoint_dir
+        and matching input hash, completed chunks are skipped and enhancement
+        resumes from the last checkpoint. The atomic write guarantees disk
+        state always reflects a consistent chunk boundary even across crashes.
+        """
+        import hashlib
+        import os as _os
+
+        resume_from = 0
+        enhanced_parts = []
+        input_tokens = 0
+        output_tokens = 0
+
+        # Hash the input chunks so re-uploading the same file with different
+        # settings (e.g., OCR toggled) invalidates a stale checkpoint even
+        # when the chunk count happens to match.
+        input_hash = hashlib.sha256(
+            "\0".join(chunks).encode('utf-8')).hexdigest()
+
+        checkpoint_file = None
+        if checkpoint_dir:
+            checkpoint_dir = Path(checkpoint_dir)
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint_file = checkpoint_dir / 'checkpoint.json'
+            if checkpoint_file.exists():
+                try:
+                    state = json.loads(
+                        checkpoint_file.read_text(encoding='utf-8'))
+                    if (state.get('input_hash') == input_hash
+                            and state.get('total_chunks') == len(chunks)):
+                        resume_from = state.get('chunk_index', 0)
+                        input_tokens = state.get('input_tokens', 0)
+                        output_tokens = state.get('output_tokens', 0)
+                        partial = state.get('partial', '')
+                        if resume_from > 0 and partial:
+                            enhanced_parts.append(partial)
+                    else:
+                        # Stale checkpoint — discard
+                        checkpoint_file.unlink()
+                except (json.JSONDecodeError, OSError):
+                    resume_from = 0
+
+        for i, chunk in enumerate(chunks):
+            if i < resume_from:
+                continue
+            if check_cancel and check_cancel():
+                raise Exception("Conversion cancelled")
+            if progress_callback:
+                progress_callback(total_pages, total_pages,
+                                  f"AI chunk {i+1}/{len(chunks)}...")
+
+            result = ai_client.enhance_markdown(
+                chunk, model=ai_model, custom_prompt=custom_prompt)
+            content = result['content']
+            if post_process:
+                content = post_process(content, chunk)
+            enhanced_parts.append(content)
+            input_tokens += result['input_tokens']
+            output_tokens += result['output_tokens']
+
+            if checkpoint_file:
+                payload = json.dumps({
+                    'input_hash': input_hash,
+                    'chunk_index': i + 1,
+                    'total_chunks': len(chunks),
+                    'input_tokens': input_tokens,
+                    'output_tokens': output_tokens,
+                    'partial': "\n\n".join(enhanced_parts),
+                })
+                tmp = checkpoint_file.with_suffix('.json.tmp')
+                tmp.write_text(payload, encoding='utf-8')
+                _os.replace(tmp, checkpoint_file)
+
+        return enhanced_parts, input_tokens, output_tokens
 
     def _split_text(self, text, max_chars=12000):
         """Split text into chunks for processing."""

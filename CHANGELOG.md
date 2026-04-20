@@ -5,6 +5,35 @@ All notable changes to PDF-MD Converter will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-04-19 — Resumable Conversions & Build Fixes
+
+### Added
+
+#### Resume-after-interrupt for AI enhancement
+- **Per-job checkpoint directory** under the OS temp dir, keyed by a sha256 hash of the uploaded file. The input, a single atomic `checkpoint.json`, and the output share this directory for the life of the job.
+- **`DocumentConverter._run_ai_chunks()`** — new helper that drives the AI enhancement loop with optional file-based checkpointing. After every completed chunk it persists the full running state (index, token totals, joined partial markdown, input hash) in a single JSON file written via `os.replace`, so the on-disk state is always consistent with a chunk boundary even across crashes mid-write.
+- **Content-hash invalidation** — the checkpoint stores a sha256 of the concatenated input chunks. A re-upload with the same file but different settings (e.g., OCR toggled) produces different chunks and the stale checkpoint is discarded rather than silently resumed.
+- **Auto-resume on re-upload** — re-POSTing the same file to `/api/convert` picks up at the first incomplete chunk instead of restarting from scratch.
+- **`GET /api/jobs`** — lists incomplete jobs with chunk progress and accumulated token totals.
+- **`DELETE /api/jobs/<job_id>`** — discards a partial job (path-traversal guarded).
+- Success response from `/api/convert` now includes `job_id` and `resumed`; error response includes `job_id` and `resumable`.
+
+### Fixed
+
+- **`/api/models` NameError** — `app.py` referenced `sys` without importing it; any request to `/api/models` raised `NameError`.
+- **`/api/convert` never worked** — the handler bound `converter.convert_file(...)` to a single name but the method returns a 3-tuple `(content, path, cost_info)`, and then called `open()` on that tuple. Also passed an invalid `config=` kwarg that propagated into `convert_pdf_to_markdown` as an unexpected keyword argument. Both paths crashed every conversion.
+- **Missing runtime dependencies** — `pymupdf4llm` (used by default in the PDF path) and `requests` (used by `DatalabClient`) were imported at module scope but absent from `requirements.txt`, so fresh installs failed on first PDF or first Datalab request.
+- **Input `accept` mismatch** — the upload control advertised `.doc` (unsupported server-side) and omitted `.eml` and `.mobi` (both supported). Corrected to match the backend's actual dispatch table.
+- **Installer shipped `.DS_Store`** — `build_mac_installer.sh` did not exclude macOS metadata files from the DMG payload. Added to the rsync exclude list.
+- **O(N²) newline collapse** — the post-extraction cleanup used `while "\n\n\n" in s: s = s.replace("\n\n\n", "\n\n")`, which rebuilds the full string each iteration. Replaced with a single `re.sub(r'\n{3,}', '\n\n', ...)` pass.
+
+### Notes
+
+- OpenRouter is a stateless request/response API — it has no server-side notion of "resume a prior generation." Recovery is implemented entirely on the app side, on top of the existing per-request retry loop (3 attempts with exponential backoff on `IncompleteRead` / 5xx / `URLError` / `TimeoutError`). The retry now sits *inside* the checkpointed loop, so a chunk that survives the retries is persisted before work moves on to the next chunk.
+- Checkpointing is wired through the PDF path (both the PyMuPDF4LLM and fallback AI loops). The EPUB AI loop is unchanged.
+
+---
+
 ## [2.2.1] - 2026-02-18 — Wave 22: Documentation Polish
 
 ### Added
