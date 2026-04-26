@@ -201,5 +201,6 @@ def download():
     )
 
 if __name__ == '__main__':
-    print("Starting Doc-2-Markdown Web Server on http://127.0.0.1:5000")
-    app.run(debug=False, use_reloader=False, port=5000, host="127.0.0.1")
+    port = int(os.environ.get("DOC2MD_PORT", "5005"))
+    print(f"Starting Doc-2-Markdown Web Server on http://127.0.0.1:{port}")
+    app.run(debug=False, use_reloader=False, port=port, host="127.0.0.1")

@@ -278,6 +278,18 @@ of experience at City Hospital...
 [[PAGE_START: 2]]
 ```
 
+### macOS Launcher Notes
+
+The macOS launcher (`start_mac.sh`, and the `Doc-2-Markdown.app` bundle built from it) stores its Python virtual environment and runtime data in `~/Library/Application Support/Doc-2-Markdown/` — not inside the app bundle. This lets the launcher work the same way whether you run it from a source checkout, from `/Applications`, or directly from a mounted `.dmg` (whose filesystem is read-only).
+
+If you ever need a clean slate, delete that directory and the next launch will rebuild the venv.
+
+The web UI listens on **port 5005** by default. Port 5000 is avoided because recent macOS versions bind it to AirPlay Receiver (via Control Center), which will return HTTP 403 to any other listener. Override with the `DOC2MD_PORT` environment variable if needed:
+
+```bash
+DOC2MD_PORT=8080 ./start_mac.sh
+```
+
 ### Resuming an Interrupted Conversion
 
 Long AI-enhanced conversions are checkpointed chunk-by-chunk to the system temp directory. If the process is killed, the network drops, or the browser closes mid-run, the partial work is preserved on disk.

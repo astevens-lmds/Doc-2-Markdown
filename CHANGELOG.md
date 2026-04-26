@@ -5,6 +5,21 @@ All notable changes to PDF-MD Converter will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-04-23 — macOS DMG Launcher Fixes
+
+### Fixed
+
+- **Launcher crashed when the app was run directly from a mounted DMG** (`[Errno 30] Read-only file system` on `.venv` creation → cascading `pip: command not found` → `ModuleNotFoundError: No module named 'flask'`). The launcher now puts its venv and runtime data in `~/Library/Application Support/Doc-2-Markdown/` instead of trying to write inside the (potentially read-only) app bundle.
+- **Port 5000 collision with macOS AirPlay Receiver** (produced an opaque HTTP 403 in Chrome when AirPlay Receiver was enabled in Control Center). Default port moved to 5005; overridable via the `DOC2MD_PORT` environment variable.
+
+### Changed
+
+- `pdf_to_markdown.py` resolves `config.json`, `usage.json`, and `custom_prompts.json` against `$DOC2MD_DATA_DIR` when set, falling back to the module directory for dev-mode runs from a source checkout.
+- `app.py` reads `$DOC2MD_PORT` on startup.
+- `start_mac.sh` rewritten to: resolve its own bundle dir, create the venv and data dir under Application Support, install requirements against the bundled `requirements.txt`, clear any stale listener on the chosen port, and export both `DOC2MD_DATA_DIR` and `DOC2MD_PORT` before launching `app.py`.
+
+---
+
 ## [2.3.0] - 2026-04-19 — Resumable Conversions & Build Fixes
 
 ### Added

@@ -4,8 +4,8 @@ A comprehensive desktop application to convert PDF files to Markdown format.
 Features: AI enhancement, OCR, table detection, multiple export formats, drag & drop.
 """
 
-__version__ = "2.3.0"
-__version_date__ = "2026-04-19"
+__version__ = "2.3.1"
+__version_date__ = "2026-04-23"
 
 import threading
 import queue
@@ -43,10 +43,15 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import queue
 
-# Configuration and cost tracking files
-CONFIG_FILE = Path(__file__).parent / "config.json"
-USAGE_FILE = Path(__file__).parent / "usage.json"
-PROMPTS_FILE = Path(__file__).parent / "custom_prompts.json"
+# Configuration and cost tracking files.
+# When running from a read-only location (e.g. a mounted .dmg app bundle),
+# the launcher sets DOC2MD_DATA_DIR to a writable path; otherwise fall back
+# to the source directory (dev mode).
+_DATA_DIR = Path(os.environ.get("DOC2MD_DATA_DIR") or Path(__file__).parent)
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_FILE = _DATA_DIR / "config.json"
+USAGE_FILE = _DATA_DIR / "usage.json"
+PROMPTS_FILE = _DATA_DIR / "custom_prompts.json"
 
 # ============================================================================
 # LAZY IMPORT SYSTEM - Performance Optimization
