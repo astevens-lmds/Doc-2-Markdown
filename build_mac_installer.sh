@@ -1,13 +1,29 @@
 #!/bin/bash
 
+set -e
+
+# Always run from the directory this script lives in so relative paths
+# (pdf_to_markdown.py, requirements.txt, frontend/, etc.) resolve correctly
+# regardless of where the script is invoked from.
+cd "$(dirname "$0")"
+
 APP_NAME="Doc-2-Markdown"
-VERSION=$(python3 -c "import re,sys; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('pdf_to_markdown.py').read()); print(m.group(1) if m else 'dev')")
+VERSION=$(python3 -c "import re; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('pdf_to_markdown.py').read()); print(m.group(1) if m else 'dev')")
 DMG_NAME="${APP_NAME}-${VERSION}-macOS.dmg"
 STAGING_DIR="build_staging"
 
-echo "🧹 Cleaning up previous builds (version ${VERSION})..."
+# Sanity check: bundled launcher and core deps must exist before we ship.
+for required in start_mac.sh app.py pdf_to_markdown.py requirements.txt frontend/index.html; do
+    if [ ! -e "$required" ]; then
+        echo "❌ Missing required file: $required" >&2
+        exit 1
+    fi
+done
+
+echo "🧹 Cleaning up previous builds (building version ${VERSION})..."
 rm -rf "$STAGING_DIR"
-rm -f "$DMG_NAME"
+# Remove ALL prior DMGs in this dir (un-versioned legacy + prior versions)
+rm -f "${APP_NAME}"*.dmg
 mkdir -p "$STAGING_DIR"
 
 echo "🍎 Building AppleScript Wrapper App..."

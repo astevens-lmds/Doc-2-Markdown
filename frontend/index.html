@@ -87,7 +87,7 @@
             </section>
 
             <!-- Settings View -->
-            <section id="view-settings" class="view-section hidden">
+            <section id="view-settings" class="view-section">
                 <header class="view-header">
                     <h1>Configuration</h1>
                     <p>Manage API keys and local settings.</p>
@@ -123,6 +123,10 @@
                     <div class="form-group" id="group-google" style="display: none;">
                         <label>Google Gemini API Key</label>
                         <input type="password" id="setting-key-google" placeholder="AIza...">
+                    </div>
+                    <div class="form-group">
+                        <label>Default Model</label>
+                        <select id="setting-model"></select>
                     </div>
                     <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
                 </div>

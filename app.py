@@ -1,14 +1,13 @@
-from flask import Flask, request, jsonify, send_from_directory, make_response
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
-import sys
 import json
 import shutil
 import hashlib
 import tempfile
 from pathlib import Path
 from werkzeug.utils import secure_filename
-from pdf_to_markdown import DocumentConverter, load_config, save_config, check_dependencies, load_usage
+from pdf_to_markdown import DocumentConverter, load_config, save_config, check_dependencies, load_usage, PROVIDER_MODELS
 
 app = Flask(__name__, static_folder='frontend', static_url_path='')
 CORS(app)
@@ -19,6 +18,26 @@ TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 # Initialize document converter
 converter = DocumentConverter()
+
+# A safe default model per provider — used when the saved config has a
+# model that doesn't belong to the currently selected provider (e.g. user
+# switched from Datalab to OpenRouter but config.default_model is still
+# "datalab/marker-ocr", which OpenRouter rejects with HTTP 400).
+PROVIDER_DEFAULT_MODELS = {
+    "openrouter": "anthropic/claude-sonnet-4-6",
+    "openai": "gpt-6-omni-mini",
+    "anthropic": "claude-sonnet-4-6",
+    "google": "gemini-3.0-flash",
+    "datalab": "datalab/marker-ocr",
+}
+
+
+def _resolve_model(provider, configured_model):
+    """Return a model id valid for the given provider, falling back to a
+    sensible default when the configured one doesn't belong here."""
+    if configured_model and configured_model in PROVIDER_MODELS.get(provider, {}):
+        return configured_model
+    return PROVIDER_DEFAULT_MODELS.get(provider, configured_model)
 
 @app.route('/')
 def index():
@@ -37,9 +56,18 @@ def config_api():
     if request.method == 'GET':
         return jsonify(load_config())
     else:
-        new_config = request.json
-        save_config(new_config)
-        return jsonify({"status": "success", "config": new_config})
+        # Merge incoming changes onto the existing config so partial saves
+        # don't wipe unrelated fields.
+        existing = load_config()
+        incoming = request.json or {}
+        merged = {**existing, **incoming}
+        if "api_keys" in incoming:
+            merged["api_keys"] = {**existing.get("api_keys", {}), **incoming["api_keys"]}
+        # Keep default_model consistent with the active provider.
+        merged["default_model"] = _resolve_model(
+            merged.get("active_provider"), merged.get("default_model"))
+        save_config(merged)
+        return jsonify({"status": "success", "config": merged})
         
 @app.route('/api/usage', methods=['GET'])
 def usage_api():
@@ -100,7 +128,7 @@ def convert():
 
         if kwargs['use_ai'] and api_key:
             kwargs['ai_client'] = ClientFactory.get_client(provider, api_key)
-            kwargs['ai_model'] = config.get("default_model")
+            kwargs['ai_model'] = _resolve_model(provider, config.get("default_model"))
             kwargs['vision_model'] = config.get("vision_model")
 
         markdown_content, result_path, _cost_info = converter.convert_file(
@@ -178,15 +206,22 @@ def delete_job(job_id):
 
 @app.route('/api/models', methods=['GET'])
 def get_models():
-    sys.path.append(str(Path(__file__).parent))
-    try:
-        from pdf_to_markdown import PROVIDER_MODELS
-        models = PROVIDER_MODELS.get("openrouter", {})
-        # Filter for vision enabled models
-        vision_models = {k: v for k, v in models.items() if v.get('vision')}
-        return jsonify(vision_models)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    """Return the model catalog for a provider.
+
+    Query params:
+      provider: provider id (openrouter, openai, anthropic, google, datalab).
+                Defaults to the active provider in config.
+      vision_only: 'true' to filter to vision-capable models only.
+    """
+    provider = request.args.get('provider') or load_config().get("active_provider", "openrouter")
+    models = PROVIDER_MODELS.get(provider, {})
+    if request.args.get('vision_only', '').lower() == 'true':
+        models = {k: v for k, v in models.items() if v.get('vision')}
+    return jsonify({
+        "provider": provider,
+        "default": PROVIDER_DEFAULT_MODELS.get(provider),
+        "models": models,
+    })
 
 @app.route('/api/download', methods=['GET'])
 def download():

@@ -5,6 +5,34 @@ All notable changes to PDF-MD Converter will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.3] - 2026-04-26 — Provider/Model Mismatch Fix & Model Picker
+
+### Fixed
+
+- **OpenRouter (and other non-Datalab providers) returned HTTP 400 `"datalab/marker-ocr is not a valid model ID"`** for every conversion. The default config ships with `default_model: "datalab/marker-ocr"`, and the convert handler passed it straight through to whatever provider was active. When the user switched the active provider in Settings, the model field was never updated (the UI didn't expose it), so requests to OpenRouter / OpenAI / Anthropic / Google all carried a Datalab-only model id.
+
+### Added
+
+- **`PROVIDER_DEFAULT_MODELS` table + `_resolve_model()` guard** in `app.py`. Every place the model is read for a request, it is validated against `PROVIDER_MODELS[active_provider]`; if it doesn't belong, a sensible per-provider default is substituted (OpenRouter → `anthropic/claude-sonnet-4-6`, OpenAI → `gpt-6-omni-mini`, Anthropic → `claude-sonnet-4-6`, Google → `gemini-3.0-flash`, Datalab → `datalab/marker-ocr`).
+- **Same sanitization on save** — `POST /api/config` now merges incoming changes onto the existing config and resolves `default_model` against `active_provider` before writing, so the saved file can never hold an invalid combo even if edited externally.
+- **Model picker in Settings UI.** A `Default Model` `<select>` is populated from a new `GET /api/models?provider=<id>` endpoint and re-populates when the provider dropdown changes. The user's choice is sent back in the save payload and the dropdown reselects whatever the server resolved to.
+- **`GET /api/models`** generalized — accepts `?provider=<id>` (defaults to active provider) and `?vision_only=true`; returns `{provider, default, models}`.
+
+### Changed
+
+- `POST /api/config` now performs a deep merge with the existing config (top-level + `api_keys` map) instead of overwriting the entire file. Partial saves no longer wipe unrelated fields.
+- Removed the stale `sys.path.append` workaround in `/api/models` (the import is at module scope now) and the unused `sys` / `make_response` imports.
+
+---
+
+## [2.3.2] - 2026-04-25 — Settings Panel Visibility Fix
+
+### Fixed
+
+- **Settings tab rendered blank.** The `<section id="view-settings">` element shipped with both the `view-section` and `hidden` classes. `.hidden { display: none !important; }` overrode the `.view-section.active { display: block; }` toggle written by the navigation handler, so clicking Settings produced an empty pane. Removed the redundant `hidden` class from the markup; `view-section` already defaults to `display: none` and is shown via the `active` class.
+
+---
+
 ## [2.3.1] - 2026-04-23 — macOS DMG Launcher Fixes
 
 ### Fixed

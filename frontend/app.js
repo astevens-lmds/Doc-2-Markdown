@@ -130,8 +130,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Settings Logic
     const providerSelect = document.getElementById('setting-provider');
+    const modelSelect = document.getElementById('setting-model');
     const providers = ['datalab', 'openrouter', 'openai', 'anthropic', 'google'];
-    
+
     function updateKeyVisibility(activeProvider) {
         providers.forEach(p => {
             const group = document.getElementById(`group-${p}`);
@@ -139,21 +140,46 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function populateModels(provider, selectedModel) {
+        return fetch(`/api/models?provider=${encodeURIComponent(provider)}`)
+            .then(res => res.json())
+            .then(data => {
+                modelSelect.innerHTML = '';
+                const models = data.models || {};
+                const ids = Object.keys(models);
+                if (ids.length === 0) {
+                    const opt = document.createElement('option');
+                    opt.textContent = '(no models for this provider)';
+                    opt.disabled = true;
+                    modelSelect.appendChild(opt);
+                    return;
+                }
+                ids.forEach(id => {
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = models[id].name ? `${models[id].name} — ${id}` : id;
+                    modelSelect.appendChild(opt);
+                });
+                const target = (selectedModel && ids.includes(selectedModel))
+                    ? selectedModel
+                    : (data.default && ids.includes(data.default) ? data.default : ids[0]);
+                modelSelect.value = target;
+            });
+    }
+
     providerSelect.addEventListener('change', (e) => {
         updateKeyVisibility(e.target.value);
+        populateModels(e.target.value);
     });
 
     function loadSettings() {
         fetch('/api/config')
             .then(res => res.json())
             .then(data => {
-                if (data.active_provider) {
-                    providerSelect.value = data.active_provider;
-                    updateKeyVisibility(data.active_provider);
-                } else {
-                    updateKeyVisibility('datalab');
-                }
-                
+                const activeProvider = data.active_provider || 'datalab';
+                providerSelect.value = activeProvider;
+                updateKeyVisibility(activeProvider);
+
                 if (data.api_keys) {
                     providers.forEach(p => {
                         const input = document.getElementById(`setting-key-${p}`);
@@ -162,30 +188,34 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     });
                 }
+
+                populateModels(activeProvider, data.default_model);
             });
     }
 
     document.getElementById('btn-save-settings').addEventListener('click', () => {
-        fetch('/api/config')
+        const apiKeys = {};
+        providers.forEach(p => {
+            const input = document.getElementById(`setting-key-${p}`);
+            if (input) apiKeys[p] = input.value;
+        });
+        const payload = {
+            active_provider: providerSelect.value,
+            api_keys: apiKeys,
+            default_model: modelSelect.value,
+        };
+        fetch('/api/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
             .then(res => res.json())
             .then(data => {
-                data.active_provider = providerSelect.value;
-                if (!data.api_keys) data.api_keys = {};
-                
-                providers.forEach(p => {
-                    const input = document.getElementById(`setting-key-${p}`);
-                    if (input) {
-                        data.api_keys[p] = input.value;
-                    }
-                });
-
-                return fetch('/api/config', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(data)
-                });
+                if (data && data.config && data.config.default_model) {
+                    modelSelect.value = data.config.default_model;
+                }
+                showToast('Settings saved.');
             })
-            .then(() => showToast('Settings saved successfully! High-End conversion parameters stored.'))
             .catch(() => showToast('Error saving settings'));
     });
 
