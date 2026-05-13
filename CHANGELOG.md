@@ -5,6 +5,40 @@ All notable changes to PDF-MD Converter will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.5] - 2026-05-12 — PDF Return-Shape Fix
+
+### Fixed
+
+- **`too many values to unpack (expected 3, got 6)` on every PDF conversion.** Two return paths inside `convert_pdf_to_markdown` violated the `(content, output_path, cost_info)` 3-tuple contract that every caller (including `convert_file` and the Flask handler) expects:
+  - The PyMuPDF4LLM path (the default for PDFs) returned a 6-key dict (`output_path`, `page_count`, `cost`, `input_tokens`, `output_tokens`, `extraction_method`). Python iterates dict keys when unpacking, producing the 6-vs-3 error.
+  - The Datalab high-end path returned `(content, _page_count, cost_info)` — page count instead of output path, and never wrote the markdown to disk.
+  Both now return `(markdown_content, str(output_path), cost_info)` and write the file before returning.
+
+### Verified
+
+- Generated a 2-page test PDF and round-tripped it through `POST /api/convert` — `status: success`, markdown content returned, file persisted under `TEMP_DIR/<job_id>_<filename>.md`.
+
+---
+
+## [2.3.4] - 2026-05-12 — Live OpenRouter Catalog & Server Logging
+
+### Fixed
+
+- **OpenRouter still rejected the model after 2.3.3.** The hardcoded "safe defaults" added in 2.3.3 (`anthropic/claude-sonnet-4-6`, `openai/gpt-6-omni-mini`, etc.) were guessed names that don't actually exist on OpenRouter — the real catalog uses dots in version suffixes (`anthropic/claude-sonnet-4.6`) and the `gpt-6` family was never released. Saved-config sanitization was therefore replacing one fake model id with another fake one.
+
+### Added
+
+- **Live OpenRouter model fetch.** `GET /api/models?provider=openrouter` now pulls the real catalog from `https://openrouter.ai/api/v1/models` (cached in-process for 1 hour). The Settings dropdown only ever offers model ids that actually exist on OpenRouter; sanitization in `_resolve_model` validates against the live list before falling back to a default.
+- **Persistent server log file.** Both Flask's request log and the app logger now write to `<DATA_DIR>/logs/server.log` (rotating, 2 MB × 3 files). Path is surfaced in `GET /api/status` so the UI can show it.
+- **`GET /api/logs?lines=<N>`** — returns the tail of the log as plain text (max 5000 lines). Linked from the Settings page so it can be opened in a browser tab without digging in the Terminal.
+- **Conversion errors log full tracebacks** via `app.logger.exception(...)`. The 500 response body now includes `log_file` and a `hint` field pointing at `/api/logs`, and the frontend's error alert reproduces both so you can find the traceback without leaving the browser.
+
+### Changed
+
+- `PROVIDER_DEFAULT_MODELS` defaults updated to real OpenRouter ids (`anthropic/claude-sonnet-4.6`, `openai/gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`, `datalab/marker-ocr`).
+
+---
+
 ## [2.3.3] - 2026-04-26 — Provider/Model Mismatch Fix & Model Picker
 
 ### Fixed

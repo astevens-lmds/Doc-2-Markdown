@@ -104,7 +104,12 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(data => {
             progressContainer.classList.add('hidden');
             if (data.error) {
-                alert("Error: " + data.error);
+                let msg = "Error: " + data.error;
+                if (data.log_file) {
+                    msg += "\n\nFull traceback in: " + data.log_file
+                         + "\n(or open /api/logs in this browser)";
+                }
+                alert(msg);
                 dropZone.classList.remove('hidden');
             } else {
                 resultContainer.classList.remove('hidden');

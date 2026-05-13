@@ -4,7 +4,9 @@ import os
 import json
 import shutil
 import hashlib
+import logging
 import tempfile
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from werkzeug.utils import secure_filename
 from pdf_to_markdown import DocumentConverter, load_config, save_config, check_dependencies, load_usage, PROVIDER_MODELS
@@ -16,6 +18,44 @@ CORS(app)
 TEMP_DIR = Path(tempfile.gettempdir()) / "doc2md_uploads"
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
+# Persistent log file. Lives next to the rest of the user data so it
+# survives across app launches and is visible whether you ran from
+# /Applications, a DMG mount, or a source checkout.
+LOG_DIR = Path(os.environ.get("DOC2MD_DATA_DIR") or Path(__file__).parent) / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "server.log"
+
+
+def _configure_logging():
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+    file_handler.setFormatter(fmt)
+    file_handler.setLevel(logging.INFO)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(fmt)
+    stream_handler.setLevel(logging.INFO)
+
+    for h in list(app.logger.handlers):
+        app.logger.removeHandler(h)
+    app.logger.addHandler(file_handler)
+    app.logger.addHandler(stream_handler)
+    app.logger.setLevel(logging.INFO)
+    app.logger.propagate = False
+
+    # Werkzeug's request log too, so HTTP 5xx requests are easy to spot
+    werk = logging.getLogger("werkzeug")
+    werk.addHandler(file_handler)
+    werk.setLevel(logging.INFO)
+
+
+_configure_logging()
+app.logger.info("Doc-2-Markdown starting (log file: %s)", LOG_FILE)
+
 # Initialize document converter
 converter = DocumentConverter()
 
@@ -23,19 +63,48 @@ converter = DocumentConverter()
 # model that doesn't belong to the currently selected provider (e.g. user
 # switched from Datalab to OpenRouter but config.default_model is still
 # "datalab/marker-ocr", which OpenRouter rejects with HTTP 400).
+# Defaults verified against the live OpenRouter catalog. OpenRouter uses
+# dots in version suffixes (claude-sonnet-4.6), the static PROVIDER_MODELS
+# table in pdf_to_markdown.py used dashes (claude-sonnet-4-6) which is why
+# the saved config could end up pointing at a model that doesn't exist.
 PROVIDER_DEFAULT_MODELS = {
-    "openrouter": "anthropic/claude-sonnet-4-6",
-    "openai": "gpt-6-omni-mini",
-    "anthropic": "claude-sonnet-4-6",
-    "google": "gemini-3.0-flash",
+    "openrouter": "anthropic/claude-sonnet-4.6",
+    "openai": "gpt-5-mini",
+    "anthropic": "claude-sonnet-4-5",
+    "google": "gemini-2.5-flash",
     "datalab": "datalab/marker-ocr",
 }
 
 
 def _resolve_model(provider, configured_model):
     """Return a model id valid for the given provider, falling back to a
-    sensible default when the configured one doesn't belong here."""
-    if configured_model and configured_model in PROVIDER_MODELS.get(provider, {}):
+    sensible default when the configured one doesn't belong here.
+
+    For OpenRouter we check the live catalog (cached) first, because the
+    static PROVIDER_MODELS table has gone stale and contains model ids
+    that OpenRouter actually rejects (e.g. openai/gpt-5.5-mini)."""
+    if not configured_model:
+        return PROVIDER_DEFAULT_MODELS.get(provider)
+
+    if provider == "openrouter":
+        live = _fetch_openrouter_models()
+        if live and configured_model in live:
+            return configured_model
+        if live:
+            # Live catalog reachable but the saved model isn't real — fall
+            # back to a default that IS real on OpenRouter, in priority
+            # order. These are checked at request time against the live
+            # list, so the first one that's actually offered wins.
+            for candidate in (PROVIDER_DEFAULT_MODELS.get("openrouter"),
+                              "anthropic/claude-sonnet-4.5",
+                              "anthropic/claude-3.5-sonnet",
+                              "openai/gpt-5-mini",
+                              "openai/gpt-4o-mini"):
+                if candidate and candidate in live:
+                    return candidate
+            return next(iter(live))
+
+    if configured_model in PROVIDER_MODELS.get(provider, {}):
         return configured_model
     return PROVIDER_DEFAULT_MODELS.get(provider, configured_model)
 
@@ -48,7 +117,8 @@ def get_status():
     missing_deps = check_dependencies()
     return jsonify({
         "status": "online",
-        "missing_dependencies": missing_deps
+        "missing_dependencies": missing_deps,
+        "log_file": str(LOG_FILE),
     })
 
 @app.route('/api/config', methods=['GET', 'POST'])
@@ -155,11 +225,18 @@ def convert():
         return jsonify(response)
 
     except Exception as e:
-        # Preserve job_dir so the next upload of this file can resume
+        # Preserve job_dir so the next upload of this file can resume.
+        # Log the full traceback to the server log file; return a short
+        # error string to the browser plus a hint that the log has more.
+        app.logger.exception(
+            "Conversion failed (job_id=%s, file=%s, provider=%s)",
+            job_id, filename, config.get("active_provider"))
         return jsonify({
             "error": str(e),
             "job_id": job_id,
             "resumable": (job_dir / 'checkpoint.json').exists(),
+            "log_file": str(LOG_FILE),
+            "hint": "Full traceback written to log_file. Hit /api/logs to view.",
         }), 500
 
 
@@ -204,6 +281,53 @@ def delete_job(job_id):
         return jsonify({"status": "deleted", "job_id": safe_id})
     return jsonify({"error": "job not found"}), 404
 
+_OPENROUTER_CACHE = {"models": None, "fetched_at": 0}
+
+
+def _fetch_openrouter_models():
+    """Pull the live OpenRouter catalog so users only ever see real model
+    IDs. Cached for the lifetime of the process plus 1 hour to avoid
+    hammering the endpoint. Returns {} on any failure so the static
+    fallback is used."""
+    import time
+    import urllib.request
+    if (_OPENROUTER_CACHE["models"] is not None
+            and time.time() - _OPENROUTER_CACHE["fetched_at"] < 3600):
+        return _OPENROUTER_CACHE["models"]
+    try:
+        req = urllib.request.Request(
+            "https://openrouter.ai/api/v1/models",
+            headers={"User-Agent": "Doc-2-Markdown/2.3"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            payload = json.loads(r.read().decode("utf-8"))
+        out = {}
+        for entry in payload.get("data", []):
+            mid = entry.get("id")
+            if not mid:
+                continue
+            pricing = entry.get("pricing", {}) or {}
+            arch = entry.get("architecture", {}) or {}
+            modalities = set(arch.get("input_modalities") or [])
+            try:
+                input_cost = float(pricing.get("prompt", 0)) * 1_000_000
+                output_cost = float(pricing.get("completion", 0)) * 1_000_000
+            except (TypeError, ValueError):
+                input_cost = output_cost = 0.0
+            out[mid] = {
+                "name": entry.get("name") or mid,
+                "input": round(input_cost, 4),
+                "output": round(output_cost, 4),
+                "vision": "image" in modalities,
+            }
+        _OPENROUTER_CACHE["models"] = out
+        _OPENROUTER_CACHE["fetched_at"] = time.time()
+        app.logger.info("Fetched %d OpenRouter models", len(out))
+        return out
+    except Exception as e:
+        app.logger.warning("OpenRouter model fetch failed: %s — using static fallback", e)
+        return {}
+
+
 @app.route('/api/models', methods=['GET'])
 def get_models():
     """Return the model catalog for a provider.
@@ -212,16 +336,47 @@ def get_models():
       provider: provider id (openrouter, openai, anthropic, google, datalab).
                 Defaults to the active provider in config.
       vision_only: 'true' to filter to vision-capable models only.
+
+    For OpenRouter, the live catalog is fetched from
+    https://openrouter.ai/api/v1/models with a 1-hour in-process cache.
+    On failure, the static PROVIDER_MODELS table is used.
     """
     provider = request.args.get('provider') or load_config().get("active_provider", "openrouter")
-    models = PROVIDER_MODELS.get(provider, {})
+
+    if provider == "openrouter":
+        models = _fetch_openrouter_models() or PROVIDER_MODELS.get("openrouter", {})
+    else:
+        models = PROVIDER_MODELS.get(provider, {})
+
     if request.args.get('vision_only', '').lower() == 'true':
         models = {k: v for k, v in models.items() if v.get('vision')}
+
     return jsonify({
         "provider": provider,
         "default": PROVIDER_DEFAULT_MODELS.get(provider),
         "models": models,
+        "model_count": len(models),
     })
+
+@app.route('/api/logs', methods=['GET'])
+def get_logs():
+    """Return the tail of the server log file as plain text.
+
+    Query params:
+      lines: number of trailing lines to return (default 200, max 5000)
+    """
+    try:
+        n = int(request.args.get('lines', '200'))
+    except ValueError:
+        n = 200
+    n = max(1, min(n, 5000))
+    if not LOG_FILE.exists():
+        return ("(log file does not exist yet — no errors logged)\n",
+                200, {"Content-Type": "text/plain; charset=utf-8"})
+    with open(LOG_FILE, encoding='utf-8', errors='replace') as f:
+        tail = f.readlines()[-n:]
+    return ("".join(tail), 200, {"Content-Type": "text/plain; charset=utf-8"})
+
 
 @app.route('/api/download', methods=['GET'])
 def download():

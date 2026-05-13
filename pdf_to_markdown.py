@@ -4,8 +4,8 @@ A comprehensive desktop application to convert PDF files to Markdown format.
 Features: AI enhancement, OCR, table detection, multiple export formats, drag & drop.
 """
 
-__version__ = "2.3.3"
-__version_date__ = "2026-04-26"
+__version__ = "2.3.5"
+__version_date__ = "2026-05-12"
 
 import threading
 import queue
@@ -1255,7 +1255,11 @@ class DocumentConverter:
                     progress_callback(0, 1, "Deploying DataLabs OCR High-End API...")
                 result = ai_client.process_document(str(pdf_path))
                 cost_info['cost'] += 0
-                return result['content'], _page_count, cost_info
+                content = result['content']
+                final_path = Path(output_path) if output_path else pdf_path.with_suffix('.md')
+                with open(final_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                return content, str(final_path), cost_info
             # ----------------------------------------------
 
             if _page_count == 0:
@@ -1348,17 +1352,11 @@ class DocumentConverter:
                     markdown_content = "\n".join(meta_lines) + "\n" + markdown_content
 
                 # Write output
-                with open(output_path, 'w', encoding='utf-8') as f:
+                final_path = Path(output_path) if output_path else pdf_path.with_suffix('.md')
+                with open(final_path, 'w', encoding='utf-8') as f:
                     f.write(markdown_content)
 
-                return {
-                    'output_path': str(output_path),
-                    'page_count': metadata.get('page_count', 0) if metadata else 0,
-                    'cost': cost_info.get('cost', 0),
-                    'input_tokens': cost_info.get('input_tokens', 0),
-                    'output_tokens': cost_info.get('output_tokens', 0),
-                    'extraction_method': 'pymupdf4llm'
-                }
+                return markdown_content, str(final_path), cost_info
 
         # Fallback to traditional extraction method
         doc = self.fitz.open(str(pdf_path))
