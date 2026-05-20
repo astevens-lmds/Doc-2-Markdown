@@ -512,6 +512,44 @@ class OpenRouterClient:
 
         return self._make_request(data)
 
+    # Max time we're willing to sit and wait on a single 429 backoff.
+    # Free-tier OpenRouter resets can be hours away; past this we bail with
+    # a clear error so the user can switch models instead of hanging.
+    _RATE_LIMIT_MAX_WAIT = 90
+
+    @staticmethod
+    def _parse_retry_after(headers, body):
+        """Return seconds to wait for a 429, or None if no signal."""
+        import time
+        # Standard HTTP header
+        retry_after = headers.get('Retry-After')
+        if retry_after:
+            try:
+                return max(0, int(float(retry_after)))
+            except (TypeError, ValueError):
+                pass
+        # OpenRouter: X-RateLimit-Reset is ms-epoch
+        reset = headers.get('X-RateLimit-Reset')
+        if reset:
+            try:
+                reset_ms = int(reset)
+                wait = (reset_ms / 1000.0) - time.time()
+                return max(0, int(wait))
+            except (TypeError, ValueError):
+                pass
+        # Sometimes the body carries the reset too
+        try:
+            parsed = json.loads(body) if body else {}
+            meta = parsed.get('error', {}).get('metadata', {})
+            inner = meta.get('headers', {})
+            reset_ms = inner.get('X-RateLimit-Reset')
+            if reset_ms:
+                wait = (int(reset_ms) / 1000.0) - time.time()
+                return max(0, int(wait))
+        except (ValueError, TypeError, AttributeError):
+            pass
+        return None
+
     def _make_request(self, data, max_retries=3):
         """Make API request to OpenRouter with retry logic."""
         import time
@@ -551,6 +589,25 @@ class OpenRouterClient:
                     continue
             except urllib.error.HTTPError as e:
                 error_body = e.read().decode('utf-8') if e.fp else str(e)
+                # Honor 429 with header-aware backoff. If the reset window is
+                # further out than _RATE_LIMIT_MAX_WAIT, bail immediately with
+                # a clear message — the caller should pick a different model.
+                if e.code == 429:
+                    wait = self._parse_retry_after(e.headers, error_body)
+                    if wait is not None and wait <= self._RATE_LIMIT_MAX_WAIT and attempt < max_retries - 1:
+                        # Add a small jitter floor so we don't hammer the moment it opens
+                        time.sleep(max(2, wait) + 1)
+                        last_error = f"Rate limited (429), waited {wait}s and retrying"
+                        continue
+                    model = data.get('model', '<unknown>')
+                    hint = (
+                        f"Daily/minute quota exhausted for model '{model}' on OpenRouter."
+                        " Switch to a different model in Settings (e.g. anthropic/claude-haiku-4-5"
+                        " or google/gemini-2.5-flash) or wait for the reset window."
+                    )
+                    if wait is not None:
+                        hint += f" Reset in ~{wait}s."
+                    raise Exception(f"API Error (429): {hint} Raw: {error_body}")
                 # Retry on 5xx errors
                 if e.code >= 500 and attempt < max_retries - 1:
                     last_error = f"Server error ({e.code}), retrying..."
