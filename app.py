@@ -182,24 +182,33 @@ def convert():
     resumed = (job_dir / 'checkpoint.json').exists()
 
     try:
-        is_high_end = config.get("active_provider") == "datalab"
-
-        kwargs = {
-            'use_ai': request.form.get('use_ai', 'true').lower() == 'true',
-            'use_ocr': request.form.get('use_ocr', 'false').lower() == 'true',
-            'use_vision': is_high_end,
-            'checkpoint_dir': str(job_dir),
-        }
-
         from pdf_to_markdown import ClientFactory
 
         provider = config.get("active_provider", "openrouter")
         api_key = config.get("api_keys", {}).get(provider, "")
+        vision_model = config.get("vision_model")
+        use_ai_flag = request.form.get('use_ai', 'true').lower() == 'true'
+        use_ocr_flag = request.form.get('use_ocr', 'false').lower() == 'true'
+        is_high_end = provider == "datalab"
 
-        if kwargs['use_ai'] and api_key:
+        # Force OCR via the configured vision model when the user toggles it
+        # on. Without this, scanned PDFs are routed through pymupdf4llm
+        # (extracts nothing) and AI enhancement returns the literal
+        # "[NO READABLE TEXT EXTRACTED]" placeholder.
+        use_vision = is_high_end or (
+            use_ocr_flag and bool(vision_model) and bool(api_key))
+
+        kwargs = {
+            'use_ai': use_ai_flag,
+            'use_ocr': use_ocr_flag,
+            'use_vision': use_vision,
+            'checkpoint_dir': str(job_dir),
+        }
+
+        if (use_ai_flag or use_vision) and api_key:
             kwargs['ai_client'] = ClientFactory.get_client(provider, api_key)
             kwargs['ai_model'] = _resolve_model(provider, config.get("default_model"))
-            kwargs['vision_model'] = config.get("vision_model")
+            kwargs['vision_model'] = vision_model
 
         markdown_content, result_path, _cost_info = converter.convert_file(
             input_path=str(input_path),

@@ -1340,9 +1340,12 @@ class DocumentConverter:
         else:
             output_path = Path(output_path)
 
-        # Try PyMuPDF4LLM first (2025 best practice for LLM/RAG)
+        # Try PyMuPDF4LLM first (2025 best practice for LLM/RAG).
+        # Skipped when the caller asked for OCR/vision/tika — those paths
+        # need the per-page extraction loop further down.
         pymupdf4llm_result = None
-        if use_pymupdf4llm and HAS_PYMUPDF4LLM and not use_tika and not use_vision:
+        if (use_pymupdf4llm and HAS_PYMUPDF4LLM
+                and not use_tika and not use_vision and not use_ocr):
             if progress_callback:
                 progress_callback(0, 1, "Using PyMuPDF4LLM (optimized for LLM/RAG)...")
 
@@ -1354,6 +1357,22 @@ class DocumentConverter:
                 page_chunks=True,  # Enable for page markers
                 progress_callback=progress_callback
             )
+
+            # Reject empty extractions from scanned PDFs — pymupdf4llm
+            # returns just page markers in that case, and feeding that to
+            # the AI enhancer surfaces "[NO READABLE TEXT EXTRACTED]" as the
+            # final output. Fall through to the traditional path so OCR /
+            # vision can take over.
+            if pymupdf4llm_result and pymupdf4llm_result.get('markdown'):
+                _raw = pymupdf4llm_result['markdown']
+                _stripped = re.sub(r'\[\[PAGE_START:[^\]]+\]\]', '', _raw)
+                _stripped = re.sub(r'-{3,}', '', _stripped).strip()
+                if len(_stripped) < 50 and self.is_scanned_pdf(pdf_path):
+                    if progress_callback:
+                        progress_callback(
+                            0, 1,
+                            "PyMuPDF4LLM extracted no text — scanned PDF detected, falling back to OCR/vision...")
+                    pymupdf4llm_result = None
 
             if pymupdf4llm_result and pymupdf4llm_result.get('markdown'):
                 # PyMuPDF4LLM successful - use its output
@@ -1374,6 +1393,17 @@ class DocumentConverter:
                     if progress_callback:
                         progress_callback(total_pages, total_pages, "AI enhancing...")
 
+                    def _swap_marker_for_hint(content, original_chunk):
+                        # If AI judged the chunk unreadable, swap the
+                        # literal marker for an actionable hint instead of
+                        # writing "[NO READABLE TEXT EXTRACTED]" to the
+                        # output file.
+                        if "[NO READABLE TEXT EXTRACTED]" in content:
+                            return ("[This page appears to be scanned/image-based. "
+                                    "Enable Force OCR or switch to a vision-capable "
+                                    "model to extract the text.]")
+                        return content
+
                     try:
                         chunks = self._split_text(raw_markdown, max_chars=12000)
                         enhanced_parts, total_input_tokens, total_output_tokens = \
@@ -1382,7 +1412,8 @@ class DocumentConverter:
                                 check_cancel=check_cancel,
                                 progress_callback=progress_callback,
                                 total_pages=total_pages,
-                                checkpoint_dir=checkpoint_dir)
+                                checkpoint_dir=checkpoint_dir,
+                                post_process=_swap_marker_for_hint)
 
                         markdown_content = "\n\n".join(enhanced_parts)
                         cost_info['input_tokens'] = total_input_tokens
