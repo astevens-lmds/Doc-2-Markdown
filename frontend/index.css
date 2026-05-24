@@ -244,11 +244,174 @@ body {
     height: 100%;
     width: 0%;
     background: var(--accent);
-    transition: width 0.3s;
-    /* Indeterminate animation */
-    animation: loading 2s infinite linear;
+    transition: width 0.3s ease;
     background-image: linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
     background-size: 1rem 1rem;
+    animation: loading 2s infinite linear;
+}
+
+.progress-status {
+    margin-top: 12px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.progress-percent {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.upload-model-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    padding: 12px 16px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+}
+
+.vision-hint {
+    margin: 0 4px 24px;
+    padding: 8px 12px;
+    background: rgba(10, 132, 255, 0.08);
+    border: 1px solid rgba(10, 132, 255, 0.3);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: #66b3ff;
+    line-height: 1.4;
+}
+
+/* Multi-file job cards */
+#jobs-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.job-card {
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px 20px;
+    transition: all 0.2s;
+}
+
+.job-card.error {
+    border-color: rgba(255, 69, 58, 0.4);
+    background: rgba(255, 69, 58, 0.05);
+}
+
+.job-card.done {
+    border-color: rgba(50, 215, 75, 0.3);
+}
+
+.job-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.job-card-name {
+    font-weight: 500;
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.job-card-status {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.job-card-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.job-card-actions .btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+}
+
+.job-card .progress-bar-bg {
+    margin-top: 4px;
+}
+
+.job-card-message {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.job-card-error {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: #ff6b66;
+    word-break: break-word;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.job-card-preview {
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(0,0,0,0.25);
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    color: #a1a1a6;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+
+.upload-model-row label {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.upload-model-row select {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: rgba(0,0,0,0.25);
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 0.9rem;
+    outline: none;
+    min-width: 0;
+}
+
+.upload-model-row select:focus {
+    border-color: var(--accent);
+}
+
+.model-cost-badge {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.model-cost-badge .estimate {
+    color: #32d74b;
+    margin-left: 8px;
+    font-weight: 500;
 }
 
 @keyframes loading {

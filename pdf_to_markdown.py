@@ -4,7 +4,7 @@ A comprehensive desktop application to convert PDF files to Markdown format.
 Features: AI enhancement, OCR, table detection, multiple export formats, drag & drop.
 """
 
-__version__ = "2.3.5"
+__version__ = "2.4.0"
 __version_date__ = "2026-05-12"
 
 import threading
@@ -574,10 +574,20 @@ class OpenRouterClient:
             try:
                 with urllib.request.urlopen(req, timeout=300) as response:
                     result = json.loads(response.read().decode('utf-8'))
-                    content = result['choices'][0]['message']['content']
+                    msg = result['choices'][0].get('message', {}) or {}
+                    # Reasoning models can put their answer in
+                    # reasoning_content while leaving content=null. Take
+                    # the first non-null source so the caller doesn't have
+                    # to know which kind of model it picked.
+                    content = msg.get('content')
+                    if content is None:
+                        content = (msg.get('reasoning_content')
+                                   or msg.get('reasoning')
+                                   or '')
                     usage = result.get('usage', {})
                     return {
                         'content': content,
+                        'reasoning_content': msg.get('reasoning_content'),
                         'input_tokens': usage.get('prompt_tokens', 0),
                         'output_tokens': usage.get('completion_tokens', 0),
                         'model': data['model']
@@ -2361,15 +2371,25 @@ class DocumentConverter:
             if check_cancel and check_cancel():
                 raise Exception("Conversion cancelled")
             if progress_callback:
-                progress_callback(total_pages, total_pages,
+                # Report progress at chunk granularity so the bar actually
+                # moves during AI enhancement. Without this, the bar pegs
+                # at 100% on chunk 1 and never advances.
+                progress_callback(i + 1, len(chunks),
                                   f"AI chunk {i+1}/{len(chunks)}...")
 
             result = ai_client.enhance_markdown(
                 chunk, model=ai_model, custom_prompt=custom_prompt)
-            content = result['content']
+            content = result.get('content')
+            # Reasoning models (Kimi K2 Thinking, DeepSeek-R1, o1, etc.)
+            # sometimes return choices[0].message.content = null when the
+            # actual output is in reasoning_content/tool_calls/refusal.
+            # Joining None blows up `"\n\n".join(...)` — coerce to "" and
+            # let post_process decide what to substitute.
+            if content is None:
+                content = result.get('reasoning_content') or ''
             if post_process:
                 content = post_process(content, chunk)
-            enhanced_parts.append(content)
+            enhanced_parts.append(content if content is not None else '')
             input_tokens += result['input_tokens']
             output_tokens += result['output_tokens']
 

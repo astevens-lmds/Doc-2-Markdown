@@ -6,6 +6,9 @@ import shutil
 import hashlib
 import logging
 import tempfile
+import threading
+import time
+import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from werkzeug.utils import secure_filename
@@ -156,6 +159,96 @@ def _hash_stream(stream, chunk_size=1 << 20):
     return h.hexdigest()[:16]
 
 
+# Async job state. /api/convert kicks off a background thread and returns
+# immediately so the browser can poll /api/convert/status/<job_id> for live
+# progress updates. The conversion's progress_callback writes (current,
+# total, message) into _JOBS[job_id] under _JOBS_LOCK.
+_JOBS = {}
+_JOBS_LOCK = threading.Lock()
+
+
+def _set_job(job_id, **patch):
+    with _JOBS_LOCK:
+        state = _JOBS.setdefault(job_id, {})
+        state.update(patch)
+        state['updated_at'] = time.time()
+
+
+def _get_job(job_id):
+    with _JOBS_LOCK:
+        state = _JOBS.get(job_id)
+        return dict(state) if state else None
+
+
+def _run_conversion(job_id, input_path, output_path, output_filename,
+                    job_dir, config, use_ai_flag, use_ocr_flag,
+                    provider, api_key, vision_model, override_model):
+    """Run conversion in a background thread, streaming progress to _JOBS."""
+    try:
+        from pdf_to_markdown import ClientFactory
+
+        is_high_end = provider == "datalab"
+        use_vision = is_high_end or (
+            use_ocr_flag and bool(vision_model) and bool(api_key))
+
+        def progress_callback(current, total, message):
+            pct = int((current / total) * 100) if total else 0
+            _set_job(job_id,
+                     status='running',
+                     current=current,
+                     total=total,
+                     percent=max(0, min(100, pct)),
+                     message=message or '')
+
+        kwargs = {
+            'use_ai': use_ai_flag,
+            'use_ocr': use_ocr_flag,
+            'use_vision': use_vision,
+            'checkpoint_dir': str(job_dir),
+            'progress_callback': progress_callback,
+        }
+
+        ai_model = None
+        if (use_ai_flag or use_vision) and api_key:
+            kwargs['ai_client'] = ClientFactory.get_client(provider, api_key)
+            ai_model = _resolve_model(
+                provider, override_model or config.get("default_model"))
+            kwargs['ai_model'] = ai_model
+            kwargs['vision_model'] = vision_model
+
+        _set_job(job_id, status='running', percent=0, total=1, current=0,
+                 message='Starting conversion...', model=ai_model)
+
+        markdown_content, result_path, cost_info = converter.convert_file(
+            input_path=str(input_path),
+            output_path=str(output_path),
+            **kwargs
+        )
+
+        # Persist output outside the job_dir so we can tear it down
+        persisted_output = TEMP_DIR / f"{job_id}_{output_filename}"
+        shutil.copy2(result_path, persisted_output)
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+        _set_job(job_id,
+                 status='done',
+                 percent=100,
+                 message='Complete.',
+                 filename=output_filename,
+                 markdown=markdown_content,
+                 path=str(persisted_output),
+                 cost_info=cost_info)
+
+    except Exception as e:
+        app.logger.exception(
+            "Conversion failed (job_id=%s, provider=%s)", job_id, provider)
+        _set_job(job_id,
+                 status='error',
+                 error=str(e),
+                 resumable=(job_dir / 'checkpoint.json').exists(),
+                 log_file=str(LOG_FILE))
+
+
 @app.route('/api/convert', methods=['POST'])
 def convert():
     if 'file' not in request.files:
@@ -179,74 +272,141 @@ def convert():
     output_filename = f"{Path(filename).stem}.md"
     output_path = job_dir / output_filename
 
-    resumed = (job_dir / 'checkpoint.json').exists()
+    provider = config.get("active_provider", "openrouter")
+    api_key = config.get("api_keys", {}).get(provider, "")
+    use_ai_flag = request.form.get('use_ai', 'true').lower() == 'true'
+    use_ocr_flag = request.form.get('use_ocr', 'false').lower() == 'true'
+    override_model = request.form.get('model') or None
+    # When Force OCR is on, the upload-screen model picker is what reads
+    # each page as an image. Fall back to the saved vision_model config
+    # only if the caller didn't pick one for this run.
+    vision_model = (request.form.get('vision_model')
+                    or (override_model if use_ocr_flag else None)
+                    or config.get("vision_model"))
+
+    _set_job(job_id,
+             status='queued',
+             filename=output_filename,
+             input_name=filename,
+             percent=0,
+             current=0,
+             total=1,
+             message='Queued...',
+             provider=provider,
+             resumed=(job_dir / 'checkpoint.json').exists())
+
+    t = threading.Thread(
+        target=_run_conversion,
+        args=(job_id, input_path, output_path, output_filename, job_dir,
+              config, use_ai_flag, use_ocr_flag, provider, api_key,
+              vision_model, override_model),
+        daemon=True,
+    )
+    t.start()
+
+    return jsonify({"job_id": job_id, "status": "queued"})
+
+
+@app.route('/api/convert/status/<job_id>', methods=['GET'])
+def convert_status(job_id):
+    """Poll endpoint for live job progress. Returns the current job state."""
+    state = _get_job(job_id)
+    if state is None:
+        return jsonify({"error": "Unknown job"}), 404
+    return jsonify(state)
+
+
+@app.route('/api/estimate', methods=['POST'])
+def estimate():
+    """Estimate per-model conversion cost for an uploaded file.
+
+    Reads the file's text once via PyMuPDF (or pdftotext fallback), counts
+    tokens, then multiplies by each model's input/output rate. Output is
+    estimated at 1.2x input (AI enhancement typically expands slightly).
+    Returns {token_count, page_count, estimates: {model_id: {input_cost,
+    output_cost, total_cost}}}.
+    """
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "Empty filename"}), 400
+
+    filename = secure_filename(file.filename)
+    suffix = Path(filename).suffix.lower()
+
+    # Save to a temp file for extraction
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        file.save(tmp.name)
+        tmp_path = tmp.name
 
     try:
-        from pdf_to_markdown import ClientFactory
+        text = ""
+        page_count = 0
+        if suffix == '.pdf':
+            try:
+                import fitz
+                doc = fitz.open(tmp_path)
+                page_count = len(doc)
+                # Cap at first 50 pages for estimation; large books would
+                # otherwise burn seconds extracting text we'll just count.
+                for i, page in enumerate(doc):
+                    if i >= 50:
+                        # Extrapolate from sampled pages
+                        avg = len(text) / max(1, i)
+                        text += " " * int(avg * (page_count - i))
+                        break
+                    text += page.get_text()
+                doc.close()
+            except Exception as e:
+                app.logger.warning("estimate: PDF text extraction failed: %s", e)
+        else:
+            try:
+                with open(tmp_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    text = f.read()
+            except Exception:
+                text = ""
 
-        provider = config.get("active_provider", "openrouter")
-        api_key = config.get("api_keys", {}).get(provider, "")
-        vision_model = config.get("vision_model")
-        use_ai_flag = request.form.get('use_ai', 'true').lower() == 'true'
-        use_ocr_flag = request.form.get('use_ocr', 'false').lower() == 'true'
-        is_high_end = provider == "datalab"
+        # Rough token count: chars / 4 (avoids loading tiktoken just for est)
+        token_count = max(1, len(text) // 4)
+        # Output usually a bit longer than input after AI enhancement
+        output_tokens = int(token_count * 1.2)
 
-        # Force OCR via the configured vision model when the user toggles it
-        # on. Without this, scanned PDFs are routed through pymupdf4llm
-        # (extracts nothing) and AI enhancement returns the literal
-        # "[NO READABLE TEXT EXTRACTED]" placeholder.
-        use_vision = is_high_end or (
-            use_ocr_flag and bool(vision_model) and bool(api_key))
+        # Pull the model catalog for the active provider
+        config = load_config()
+        provider = (request.form.get('provider')
+                    or config.get('active_provider')
+                    or 'openrouter')
+        if provider == 'openrouter':
+            models = _fetch_openrouter_models() or PROVIDER_MODELS.get('openrouter', {})
+        else:
+            models = PROVIDER_MODELS.get(provider, {})
 
-        kwargs = {
-            'use_ai': use_ai_flag,
-            'use_ocr': use_ocr_flag,
-            'use_vision': use_vision,
-            'checkpoint_dir': str(job_dir),
-        }
+        estimates = {}
+        for mid, meta in models.items():
+            in_rate = float(meta.get('input', 0) or 0)
+            out_rate = float(meta.get('output', 0) or 0)
+            input_cost = (token_count / 1_000_000) * in_rate
+            output_cost = (output_tokens / 1_000_000) * out_rate
+            estimates[mid] = {
+                'input_cost': round(input_cost, 4),
+                'output_cost': round(output_cost, 4),
+                'total_cost': round(input_cost + output_cost, 4),
+            }
 
-        if (use_ai_flag or use_vision) and api_key:
-            kwargs['ai_client'] = ClientFactory.get_client(provider, api_key)
-            kwargs['ai_model'] = _resolve_model(provider, config.get("default_model"))
-            kwargs['vision_model'] = vision_model
-
-        markdown_content, result_path, _cost_info = converter.convert_file(
-            input_path=str(input_path),
-            output_path=str(output_path),
-            **kwargs
-        )
-
-        response = {
-            "status": "success",
-            "filename": output_filename,
-            "markdown": markdown_content,
-            "path": str(result_path),
-            "job_id": job_id,
-            "resumed": resumed,
-        }
-
-        # Success: tear down job dir but preserve the final output elsewhere
-        persisted_output = TEMP_DIR / f"{job_id}_{output_filename}"
-        shutil.copy2(result_path, persisted_output)
-        response["path"] = str(persisted_output)
-        shutil.rmtree(job_dir, ignore_errors=True)
-
-        return jsonify(response)
-
-    except Exception as e:
-        # Preserve job_dir so the next upload of this file can resume.
-        # Log the full traceback to the server log file; return a short
-        # error string to the browser plus a hint that the log has more.
-        app.logger.exception(
-            "Conversion failed (job_id=%s, file=%s, provider=%s)",
-            job_id, filename, config.get("active_provider"))
         return jsonify({
-            "error": str(e),
-            "job_id": job_id,
-            "resumable": (job_dir / 'checkpoint.json').exists(),
-            "log_file": str(LOG_FILE),
-            "hint": "Full traceback written to log_file. Hit /api/logs to view.",
-        }), 500
+            'token_count': token_count,
+            'output_tokens_est': output_tokens,
+            'page_count': page_count,
+            'provider': provider,
+            'estimates': estimates,
+        })
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 _CHECKPOINT_ARTIFACTS = {'checkpoint.json', 'checkpoint.json.tmp'}

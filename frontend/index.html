@@ -52,11 +52,11 @@
                             <line x1="12" y1="3" x2="12" y2="15"></line>
                         </svg>
                     </div>
-                    <h3>Drag & Drop a document here</h3>
-                    <p>or click to browse</p>
-                    <input type="file" id="file-input" style="display: none;" accept=".pdf,.docx,.txt,.msg,.eml,.epub,.mobi">
+                    <h3>Drag & Drop documents here</h3>
+                    <p>or click to browse (multi-select supported)</p>
+                    <input type="file" id="file-input" style="display: none;" accept=".pdf,.docx,.txt,.msg,.eml,.epub,.mobi" multiple>
                 </div>
-                
+
                 <div class="conversion-settings">
                     <label class="toggle-switch">
                         <input type="checkbox" id="use-ai-toggle" checked>
@@ -66,24 +66,20 @@
                     <label class="toggle-switch">
                         <input type="checkbox" id="use-ocr-toggle">
                         <span class="slider"></span>
-                        <span class="label-text">Force OCR</span>
+                        <span class="label-text">Force OCR (vision)</span>
                     </label>
                 </div>
 
-                <div id="progress-container" class="hidden">
-                    <div class="file-info" id="file-info">Processing...</div>
-                    <div class="progress-bar-bg">
-                        <div class="progress-bar-fill" id="progress-bar"></div>
-                    </div>
+                <div class="upload-model-row" id="upload-model-row">
+                    <label for="upload-model">AI Model</label>
+                    <select id="upload-model"></select>
+                    <span class="model-cost-badge" id="upload-model-cost"></span>
+                </div>
+                <div class="vision-hint hidden" id="vision-hint">
+                    Force OCR on — only vision-capable models shown. The selected model reads each page as an image to extract boxes, charts, and tables.
                 </div>
 
-                <div id="result-container" class="hidden">
-                    <div class="result-header">
-                        <h3 id="result-filename">document.md</h3>
-                        <button id="btn-download" class="btn btn-primary">Download Markdown</button>
-                    </div>
-                    <div class="result-preview" id="result-preview"></div>
-                </div>
+                <div id="jobs-container"></div>
             </section>
 
             <!-- Settings View -->
