@@ -91,7 +91,7 @@
 
                 <div class="settings-form" id="settings-form">
                     <div class="form-group">
-                        <label>Active Provider (High-End Conversion)</label>
+                        <label>Default Provider</label>
                         <select id="setting-provider">
                             <option value="datalab">DataLabs OCR API (High-End)</option>
                             <option value="openrouter">OpenRouter</option>
@@ -99,29 +99,30 @@
                             <option value="anthropic">Anthropic</option>
                             <option value="google">Google Gemini</option>
                         </select>
+                        <p class="form-hint">Used as the default selection on the Convert screen. You can pick models from any provider that has a key below, per file.</p>
                     </div>
-                    <div class="form-group" id="group-datalab" style="display: none;">
+                    <div class="form-group" id="group-datalab">
                         <label>DataLabs API Key</label>
                         <input type="password" id="setting-key-datalab" placeholder="datalabs-...">
                     </div>
-                    <div class="form-group" id="group-openrouter" style="display: none;">
+                    <div class="form-group" id="group-openrouter">
                         <label>OpenRouter API Key</label>
                         <input type="password" id="setting-key-openrouter" placeholder="sk-or-v1-...">
                     </div>
-                    <div class="form-group" id="group-openai" style="display: none;">
+                    <div class="form-group" id="group-openai">
                         <label>OpenAI API Key</label>
                         <input type="password" id="setting-key-openai" placeholder="sk-...">
                     </div>
-                    <div class="form-group" id="group-anthropic" style="display: none;">
+                    <div class="form-group" id="group-anthropic">
                         <label>Anthropic API Key</label>
                         <input type="password" id="setting-key-anthropic" placeholder="sk-ant-...">
                     </div>
-                    <div class="form-group" id="group-google" style="display: none;">
+                    <div class="form-group" id="group-google">
                         <label>Google Gemini API Key</label>
                         <input type="password" id="setting-key-google" placeholder="AIza...">
                     </div>
                     <div class="form-group">
-                        <label>Default Model</label>
+                        <label>Default Model (for the selected provider above)</label>
                         <select id="setting-model"></select>
                     </div>
                     <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>

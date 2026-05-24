@@ -8,7 +8,6 @@ import logging
 import tempfile
 import threading
 import time
-import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from werkzeug.utils import secure_filename
@@ -272,7 +271,10 @@ def convert():
     output_filename = f"{Path(filename).stem}.md"
     output_path = job_dir / output_filename
 
-    provider = config.get("active_provider", "openrouter")
+    # Provider can be overridden per-request from the upload screen
+    # (cross-provider model picker). Falls back to the saved active provider.
+    provider = (request.form.get('provider')
+                or config.get("active_provider", "openrouter"))
     api_key = config.get("api_keys", {}).get(provider, "")
     use_ai_flag = request.form.get('use_ai', 'true').lower() == 'true'
     use_ocr_flag = request.form.get('use_ocr', 'false').lower() == 'true'
@@ -373,33 +375,45 @@ def estimate():
         # Output usually a bit longer than input after AI enhancement
         output_tokens = int(token_count * 1.2)
 
-        # Pull the model catalog for the active provider
+        # Build estimates. If all_providers=true is set OR no specific
+        # provider was requested, sum costs across every provider the user
+        # has a key for, keyed by "<provider>::<model_id>" so the frontend
+        # can map directly to its merged dropdown.
         config = load_config()
-        provider = (request.form.get('provider')
-                    or config.get('active_provider')
-                    or 'openrouter')
-        if provider == 'openrouter':
-            models = _fetch_openrouter_models() or PROVIDER_MODELS.get('openrouter', {})
-        else:
-            models = PROVIDER_MODELS.get(provider, {})
+        all_providers = request.form.get('all_providers', '').lower() == 'true'
+        provider_req = request.form.get('provider')
 
-        estimates = {}
-        for mid, meta in models.items():
+        def cost_for(meta):
             in_rate = float(meta.get('input', 0) or 0)
             out_rate = float(meta.get('output', 0) or 0)
             input_cost = (token_count / 1_000_000) * in_rate
             output_cost = (output_tokens / 1_000_000) * out_rate
-            estimates[mid] = {
+            return {
                 'input_cost': round(input_cost, 4),
                 'output_cost': round(output_cost, 4),
                 'total_cost': round(input_cost + output_cost, 4),
             }
 
+        estimates = {}
+        if all_providers:
+            keys = config.get("api_keys", {}) or {}
+            for prov in ("datalab", "anthropic", "openai", "google", "openrouter"):
+                if not keys.get(prov):
+                    continue
+                for mid, meta in _models_for_provider(prov).items():
+                    estimates[f"{prov}::{mid}"] = cost_for(meta)
+            response_provider = 'merged'
+        else:
+            provider = provider_req or config.get('active_provider') or 'openrouter'
+            for mid, meta in _models_for_provider(provider).items():
+                estimates[mid] = cost_for(meta)
+            response_provider = provider
+
         return jsonify({
             'token_count': token_count,
             'output_tokens_est': output_tokens,
             'page_count': page_count,
-            'provider': provider,
+            'provider': response_provider,
             'estimates': estimates,
         })
     finally:
@@ -497,27 +511,58 @@ def _fetch_openrouter_models():
         return {}
 
 
+def _models_for_provider(provider):
+    """Return {model_id: meta} for the given provider. Uses live OpenRouter
+    catalog when available, falls back to the static PROVIDER_MODELS table."""
+    if provider == "openrouter":
+        return _fetch_openrouter_models() or PROVIDER_MODELS.get("openrouter", {})
+    return PROVIDER_MODELS.get(provider, {})
+
+
 @app.route('/api/models', methods=['GET'])
 def get_models():
-    """Return the model catalog for a provider.
+    """Return the model catalog.
 
     Query params:
-      provider: provider id (openrouter, openai, anthropic, google, datalab).
-                Defaults to the active provider in config.
-      vision_only: 'true' to filter to vision-capable models only.
-
-    For OpenRouter, the live catalog is fetched from
-    https://openrouter.ai/api/v1/models with a 1-hour in-process cache.
-    On failure, the static PROVIDER_MODELS table is used.
+      provider: provider id. Defaults to active provider in config.
+      all_providers: 'true' returns the union of every provider where the
+                     user has an API key configured. Each model entry gains
+                     a 'provider' field so the caller knows which client
+                     to instantiate for that model.
+      vision_only: 'true' filters to vision-capable models only.
     """
-    provider = request.args.get('provider') or load_config().get("active_provider", "openrouter")
+    config = load_config()
+    vision_only = request.args.get('vision_only', '').lower() == 'true'
 
-    if provider == "openrouter":
-        models = _fetch_openrouter_models() or PROVIDER_MODELS.get("openrouter", {})
-    else:
-        models = PROVIDER_MODELS.get(provider, {})
+    if request.args.get('all_providers', '').lower() == 'true':
+        keys = config.get("api_keys", {}) or {}
+        merged = {}
+        providers_seen = []
+        for prov in ("datalab", "anthropic", "openai", "google", "openrouter"):
+            if not keys.get(prov):
+                continue
+            for mid, meta in _models_for_provider(prov).items():
+                if vision_only and not meta.get('vision'):
+                    continue
+                entry = dict(meta)
+                entry['provider'] = prov
+                # Namespace the key to avoid collisions across providers
+                # (e.g. "claude-sonnet-4-6" exists on both Anthropic-direct
+                # and as "anthropic/claude-sonnet-4-6" on OpenRouter).
+                merged[f"{prov}::{mid}"] = entry
+            providers_seen.append(prov)
+        return jsonify({
+            "all_providers": True,
+            "providers": providers_seen,
+            "active_provider": config.get("active_provider"),
+            "default": PROVIDER_DEFAULT_MODELS.get(config.get("active_provider")),
+            "models": merged,
+            "model_count": len(merged),
+        })
 
-    if request.args.get('vision_only', '').lower() == 'true':
+    provider = request.args.get('provider') or config.get("active_provider", "openrouter")
+    models = _models_for_provider(provider)
+    if vision_only:
         models = {k: v for k, v in models.items() if v.get('vision')}
 
     return jsonify({

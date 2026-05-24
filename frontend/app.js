@@ -70,12 +70,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const visionHint = document.getElementById('vision-hint');
     const jobsContainer = document.getElementById('jobs-container');
 
-    // ---- Model picker on the upload screen ----
-    // Cache structure: { "<provider>:<vision_only?>": {models, default} }
+    // ---- Cross-provider model picker on the upload screen ----
+    // Models are keyed as "<provider>::<model_id>" so we can dispatch each
+    // conversion to the correct API client. The dropdown shows a
+    // [Provider] prefix on each option so the user knows which key is
+    // about to be charged.
+    //
+    // Cache: { "vision?": { models: {compositeKey: meta}, defaultKey, providers, activeProvider } }
     const modelCache = {};
-    let activeProvider = null;
-    let estimateMap = {};
-    let lastEstimateProvider = null;
+    let estimateMap = {};   // { compositeKey: {input_cost, output_cost, total_cost} }
+    let estimateLoadedOnce = false;
+
+    const PROVIDER_LABEL = {
+        datalab: 'Datalab',
+        openrouter: 'OpenRouter',
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        google: 'Google',
+    };
 
     function fmtRate(rate) {
         if (rate == null || rate === 0) return '–';
@@ -88,16 +100,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (cost < 1) return '$' + cost.toFixed(3);
         return '$' + cost.toFixed(2);
     }
-    function modelLabel(id, meta) {
-        const display = meta.name || id;
+    function parseCompositeKey(compositeKey) {
+        const idx = compositeKey.indexOf('::');
+        if (idx === -1) return { provider: null, modelId: compositeKey };
+        return { provider: compositeKey.slice(0, idx), modelId: compositeKey.slice(idx + 2) };
+    }
+    function modelLabel(compositeKey, meta) {
+        const { provider } = parseCompositeKey(compositeKey);
+        const provLabel = PROVIDER_LABEL[provider] || provider || '?';
+        const display = meta.name || parseCompositeKey(compositeKey).modelId;
         const rate = `${fmtRate(meta.input)} in / ${fmtRate(meta.output)} out per 1M`;
-        const est = estimateMap[id];
+        const est = estimateMap[compositeKey];
         const estPart = est ? `  •  est ${fmtEst(est.total_cost)}` : '';
         const visionBadge = meta.vision ? '  👁' : '';
-        return `${display} — ${rate}${estPart}${visionBadge}`;
+        return `[${provLabel}] ${display} — ${rate}${estPart}${visionBadge}`;
     }
     function cacheKey() {
-        return `${activeProvider}:${useOcrToggle.checked ? 'v' : 'a'}`;
+        return useOcrToggle.checked ? 'v' : 'a';
     }
     function refreshModelOptions() {
         const cached = modelCache[cacheKey()];
@@ -110,34 +129,58 @@ document.addEventListener('DOMContentLoaded', () => {
             const opt = document.createElement('option');
             opt.textContent = useOcrToggle.checked
                 ? '(no vision-capable models — add a provider key in Settings)'
-                : '(no models — add a provider key in Settings)';
+                : '(no providers configured — add an API key in Settings)';
             opt.disabled = true;
             uploadModel.appendChild(opt);
             uploadModelCost.textContent = '';
             return;
         }
-        ids.forEach(id => {
-            const opt = document.createElement('option');
-            opt.value = id;
-            opt.textContent = modelLabel(id, models[id]);
-            uploadModel.appendChild(opt);
+
+        // Group options by provider for clarity
+        const byProvider = {};
+        ids.forEach(k => {
+            const { provider } = parseCompositeKey(k);
+            (byProvider[provider] = byProvider[provider] || []).push(k);
         });
-        const target = (prev && ids.includes(prev))
-            ? prev
-            : (cached.default && ids.includes(cached.default) ? cached.default : ids[0]);
+        const providerOrder = ['datalab', 'anthropic', 'openai', 'google', 'openrouter']
+            .filter(p => byProvider[p]);
+        providerOrder.forEach(prov => {
+            const grp = document.createElement('optgroup');
+            grp.label = PROVIDER_LABEL[prov] || prov;
+            byProvider[prov].forEach(k => {
+                const opt = document.createElement('option');
+                opt.value = k;
+                opt.textContent = modelLabel(k, models[k]);
+                grp.appendChild(opt);
+            });
+            uploadModel.appendChild(grp);
+        });
+
+        // Prefer (a) what the user had selected, (b) the active-provider's
+        // default model, (c) the first option.
+        let target = ids.includes(prev) ? prev : null;
+        if (!target && cached.activeProvider) {
+            const activeDefault = cached.defaultKey;
+            if (activeDefault && ids.includes(activeDefault)) target = activeDefault;
+            else {
+                const fromActive = ids.find(k => parseCompositeKey(k).provider === cached.activeProvider);
+                if (fromActive) target = fromActive;
+            }
+        }
+        if (!target) target = ids[0];
         uploadModel.value = target;
         updateCostBadge();
     }
     function updateCostBadge() {
-        const id = uploadModel.value;
+        const k = uploadModel.value;
         const cached = modelCache[cacheKey()];
-        if (!cached || !cached.models[id]) {
+        if (!cached || !cached.models[k]) {
             uploadModelCost.textContent = '';
             return;
         }
-        const meta = cached.models[id];
+        const meta = cached.models[k];
         const rates = `${fmtRate(meta.input)} / ${fmtRate(meta.output)} per 1M`;
-        const est = estimateMap[id];
+        const est = estimateMap[k];
         uploadModelCost.innerHTML = est
             ? `${rates}<span class="estimate">~${fmtEst(est.total_cost)}</span>`
             : rates;
@@ -145,24 +188,29 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadModel.addEventListener('change', updateCostBadge);
 
     function loadUploadModels(forceRefresh) {
-        return fetch('/api/config').then(r => r.json()).then(cfg => {
-            activeProvider = cfg.active_provider || 'openrouter';
-            const visionOnly = useOcrToggle.checked;
-            const key = `${activeProvider}:${visionOnly ? 'v' : 'a'}`;
-            if (!forceRefresh && modelCache[key]) {
-                refreshModelOptions();
-                return;
-            }
-            const url = `/api/models?provider=${encodeURIComponent(activeProvider)}`
-                      + (visionOnly ? '&vision_only=true' : '');
-            return fetch(url).then(r => r.json()).then(data => {
+        const visionOnly = useOcrToggle.checked;
+        const key = visionOnly ? 'v' : 'a';
+        if (!forceRefresh && modelCache[key]) {
+            refreshModelOptions();
+            return Promise.resolve();
+        }
+        const url = `/api/models?all_providers=true`
+                  + (visionOnly ? '&vision_only=true' : '');
+        return Promise.all([fetch('/api/config').then(r => r.json()),
+                            fetch(url).then(r => r.json())])
+            .then(([cfg, data]) => {
+                const activeProvider = cfg.active_provider || data.active_provider;
+                const defaultKey = activeProvider && cfg.default_model
+                    ? `${activeProvider}::${cfg.default_model}` : null;
                 modelCache[key] = {
                     models: data.models || {},
-                    default: cfg.default_model || data.default,
+                    providers: data.providers || [],
+                    activeProvider,
+                    defaultKey,
                 };
                 refreshModelOptions();
-            });
-        }).catch(err => console.error('loadUploadModels failed', err));
+            })
+            .catch(err => console.error('loadUploadModels failed', err));
     }
 
     useOcrToggle.addEventListener('change', () => {
@@ -173,15 +221,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadUploadModels();
 
-    // ---- Cost estimation ----
+    // ---- Cost estimation (cross-provider) ----
     function estimateForFile(file) {
-        // Skip if we already have an estimate for this provider — single
-        // file estimates apply roughly to the rest of a batch too.
-        if (lastEstimateProvider === activeProvider) return Promise.resolve();
-        lastEstimateProvider = activeProvider;
+        // One estimate per session — token counts of subsequent files in a
+        // batch are similar enough that re-estimating per file is wasteful.
+        if (estimateLoadedOnce) return Promise.resolve();
+        estimateLoadedOnce = true;
         const fd = new FormData();
         fd.append('file', file);
-        if (activeProvider) fd.append('provider', activeProvider);
+        fd.append('all_providers', 'true');
         return fetch('/api/estimate', { method: 'POST', body: fd })
             .then(r => r.json())
             .then(data => {
@@ -241,11 +289,16 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('file', file);
         formData.append('use_ai', useAiToggle.checked);
         formData.append('use_ocr', useOcrToggle.checked);
-        if (uploadModel.value) formData.append('model', uploadModel.value);
-        // When Force OCR is on, the picked model also acts as the vision
-        // model. Backend will use this for the per-page image pass.
-        if (useOcrToggle.checked && uploadModel.value) {
-            formData.append('vision_model', uploadModel.value);
+        // Composite key "<provider>::<model_id>" — split before sending.
+        if (uploadModel.value) {
+            const { provider, modelId } = parseCompositeKey(uploadModel.value);
+            if (provider) formData.append('provider', provider);
+            if (modelId) formData.append('model', modelId);
+            // When Force OCR is on, the picked model also acts as the
+            // vision model used for the per-page image pass.
+            if (useOcrToggle.checked && modelId) {
+                formData.append('vision_model', modelId);
+            }
         }
 
         fetch('/api/convert', { method: 'POST', body: formData })
@@ -352,13 +405,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const modelSelect = document.getElementById('setting-model');
     const providers = ['datalab', 'openrouter', 'openai', 'anthropic', 'google'];
 
-    function updateKeyVisibility(activeProviderId) {
-        providers.forEach(p => {
-            const group = document.getElementById(`group-${p}`);
-            if (group) group.style.display = (p === activeProviderId) ? 'block' : 'none';
-        });
-    }
-
     function populateModels(provider, selectedModel) {
         return fetch(`/api/models?provider=${encodeURIComponent(provider)}`)
             .then(res => res.json())
@@ -387,7 +433,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     providerSelect.addEventListener('change', (e) => {
-        updateKeyVisibility(e.target.value);
         populateModels(e.target.value);
     });
 
@@ -395,9 +440,8 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch('/api/config')
             .then(res => res.json())
             .then(data => {
-                const provider = data.active_provider || 'datalab';
+                const provider = data.active_provider || 'openrouter';
                 providerSelect.value = provider;
-                updateKeyVisibility(provider);
                 if (data.api_keys) {
                     providers.forEach(p => {
                         const input = document.getElementById(`setting-key-${p}`);

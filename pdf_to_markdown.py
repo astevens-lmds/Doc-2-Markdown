@@ -4,7 +4,7 @@ A comprehensive desktop application to convert PDF files to Markdown format.
 Features: AI enhancement, OCR, table detection, multiple export formats, drag & drop.
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 __version_date__ = "2026-05-12"
 
 import threading

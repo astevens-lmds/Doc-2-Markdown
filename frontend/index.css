@@ -505,6 +505,13 @@ body {
     border-color: var(--accent);
 }
 
+.form-hint {
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
 .toast {
     position: fixed;
     bottom: 32px;
